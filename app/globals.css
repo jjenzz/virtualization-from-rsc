@@ -1,0 +1,51 @@
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  font:
+    14px/1.4 system-ui,
+    sans-serif;
+  padding: 16px;
+}
+h1 {
+  font-size: 18px;
+}
+h2 {
+  font-size: 15px;
+}
+.demos {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr));
+  gap: 16px;
+}
+.viewport {
+  height: 600px;
+  border: 1px solid #ccc;
+}
+.row {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  padding: 0 12px;
+  border-bottom: 1px solid #eee;
+}
+.row[data-pending] {
+  color: #999;
+}
+.row[data-error] {
+  color: #b00020;
+  gap: 8px;
+}
+.name {
+  width: 160px;
+  font-weight: 600;
+}
+.email {
+  flex: 1;
+  color: #555;
+}
+.age {
+  width: 40px;
+  text-align: right;
+}
