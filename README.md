@@ -108,8 +108,9 @@ const users = createDataset({
 - The first page (`rangeSize` rows) is in the HTML. Each later page is one request
   as it scrolls into view: the server fetches it with `getItems` and renders it with
   `children`.
-- Next runs server functions one at a time, so pages are queued, and pages that
-  scroll away before their turn are skipped.
+- Next runs server functions one at a time, so each page is picked when the previous
+  request finishes: visible pages first, nearest the middle of the viewport, then one
+  page ahead in the scroll direction. Pages scrolled past are never requested.
 - Both functions are public endpoints and can be called with any arguments. A request
   renders at most 1,000 rows. Values a server function captures (like `total`) are
   encrypted and sent to the browser, so don't capture large data.
@@ -151,7 +152,9 @@ The demo loads ranges with React Query: see [user-list.tsx](app/_components/user
 
 - `data`: anything `createDataset` takes: options, an items array, or a dataset.
 - `offset`: the index of the first item in `data`. Defaults to 0.
-- `count`, `itemSize`, `overscan`.
+- `count`, `overscan`.
+- `itemSize` for rows of one fixed height, or `defaultItemSize` for rows of different
+  heights. Measured rows size themselves; unmeasured rows count as the estimate.
 - `rangeSize`: the page size for reported ranges and loading on scroll. At least the
   number of visible rows. Defaults to 50.
 - `onRangeChange` (client only): called with the `{ start, end }` to load.
@@ -186,11 +189,24 @@ Both server modes handle these the same way:
 - When loading on scroll, a page whose request failed is requested again when it
   comes back into view.
 
+## Variable heights
+
+With `defaultItemSize`, rows are measured as they render, and only measured rows are
+stored, so memory grows with the rows you've seen, not with `count`. Unmeasured rows
+count as the average measured height (or `defaultItemSize` before any are measured).
+
+Rows sit in normal flow under a spacer as tall as everything above them. When a row
+above the viewport changes height, the list moves the scroll position by the same
+amount, so the view stays still. While the scrollbar is dragged, new measurements wait
+until it's released, so the thumb doesn't drift from the pointer. Don't give rows
+vertical margins; they aren't measured.
+
 ## Files
 
 | File                                      | Build  | Does                                                                 |
 | ----------------------------------------- | ------ | -------------------------------------------------------------------- |
-| `root.tsx`, `viewport.tsx`, `item.tsx`    | both   | Shared client parts: visible range, scrolling, row positions.        |
+| `root.tsx`, `viewport.tsx`, `item.tsx`    | both   | Shared client parts: visible range, scrolling, measuring rows.       |
+| `sizes.ts`                                | both   | Row heights and positions, stored sparsely.                          |
 | `items.tsx`, `dataset.ts`, `types.ts`     | both   | List element, `createDataset`, types.                                |
 | `items.client.tsx`                        | client | Renders visible rows from `items`.                                   |
 | `root.server.tsx`, `list-store.server.ts` | server | Registers `Root`'s dataset under its `id`.                           |

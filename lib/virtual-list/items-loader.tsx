@@ -15,9 +15,11 @@ type LoadRange = (range: Range) => Promise<ReactNode[]>;
  * request fails (e.g. offline), its rows show `errorRow` until the page comes
  * back into view, when it's requested again.
  *
- * Next runs server functions one at a time, so pages are queued here and a page
- * that scrolled out of view before its turn is skipped (it's queued again if it
- * comes back into view).
+ * Next runs server functions one at a time, so the next page is picked only when
+ * the previous request finishes, from what's on screen then: visible pages first,
+ * nearest the middle of the viewport first, then one page ahead in the scroll
+ * direction. Pages scrolled past are never requested, and the page you stop on
+ * waits for at most the request already in flight.
  */
 export function ItemsLoader({
   first,
@@ -34,26 +36,24 @@ export function ItemsLoader({
   const range = useRangeContext();
   const rows = useRef<ReactNode[]>([...first]);
   const [, rerender] = useReducer((n: number) => n + 1, 0);
-  const loader = useRef({
-    requested: new Set<number>(pagesIn({ start: 0, end: first.length }, rangeSize)),
-    failed: new Set<number>(),
-    queue: [] as number[],
+  const loader = useRef<LoaderState>({
+    loaded: new Set(pagesIn({ start: 0, end: first.length }, rangeSize)),
+    failed: new Set(),
+    inFlight: null,
     running: false,
-    visible: null as Range | null,
+    visible: null,
+    direction: 1,
   });
 
   useEffect(() => {
     if (!range) return;
     const state = loader.current;
+    if (state.visible && range.start !== state.visible.start)
+      state.direction = range.start > state.visible.start ? 1 : -1;
     state.visible = range;
+    // Failed pages back in view are tried again (showing the placeholder meanwhile).
     let retrying = false;
-    for (const page of pagesIn(range, rangeSize)) {
-      if (state.requested.has(page)) continue;
-      state.requested.add(page);
-      state.queue.push(page);
-      // A failed page shows the placeholder again while it's retried.
-      retrying = state.failed.delete(page) || retrying;
-    }
+    for (const page of pagesIn(range, rangeSize)) retrying = state.failed.delete(page) || retrying;
     if (retrying) rerender();
     if (state.running) return;
 
@@ -61,26 +61,23 @@ export function ItemsLoader({
     // updates Next's router state, which isn't allowed while another component renders.
     state.running = true;
     void (async () => {
-      while (state.queue.length > 0) {
-        const page = state.queue.shift()!;
+      for (let page = nextPage(state, rangeSize, count); page !== null; page = nextPage(state, rangeSize, count)) {
         const start = page * rangeSize;
         const end = Math.min(count, start + rangeSize);
-        if (!state.visible || end <= state.visible.start || start >= state.visible.end) {
-          state.requested.delete(page);
-          continue;
-        }
+        state.inFlight = page;
         try {
           const loaded = await loadRange({ start, end });
           for (let i = 0; i < loaded.length; i++) rows.current[start + i] = loaded[i];
-          rerender();
+          state.loaded.add(page);
         } catch (error) {
-          // Request failed (e.g. offline): show the error row, and forget the page so
-          // it's requested again when it next comes into view.
+          // Request failed (e.g. offline): show the error row until the page comes
+          // back into view, when it's tried again.
           console.error(`<VirtualList.Items> couldn't load items ${start}-${end - 1}.`, error);
-          state.requested.delete(page);
           state.failed.add(page);
-          rerender();
+        } finally {
+          state.inFlight = null;
         }
+        rerender();
       }
       state.running = false;
     })();
@@ -105,4 +102,43 @@ function pagesIn({ start, end }: Range, rangeSize: number): number[] {
   const pages: number[] = [];
   for (let p = Math.floor(start / rangeSize); p <= Math.floor((end - 1) / rangeSize); p++) pages.push(p);
   return pages;
+}
+
+type LoaderState = {
+  /** Pages whose rows have arrived. */
+  loaded: Set<number>;
+  /** Pages whose request failed; not requested again until they're back in view. */
+  failed: Set<number>;
+  /** The page being requested now. */
+  inFlight: number | null;
+  running: boolean;
+  /** The visible range, as of the last render. */
+  visible: Range | null;
+  /** 1 when scrolling down, -1 when scrolling up. */
+  direction: 1 | -1;
+};
+
+/**
+ * The page to request next, decided when the previous request finishes: a visible
+ * page that's still missing, nearest the middle of the viewport first, or else the
+ * page just past the visible ones in the scroll direction. `null` when there's
+ * nothing left to load for now.
+ */
+function nextPage(state: LoaderState, rangeSize: number, count: number): number | null {
+  const { visible } = state;
+  if (!visible) return null;
+  const missing = (page: number) =>
+    page >= 0 &&
+    page * rangeSize < count &&
+    !state.loaded.has(page) &&
+    !state.failed.has(page) &&
+    page !== state.inFlight;
+  const pages = pagesIn(visible, rangeSize);
+  const middle = (visible.start + visible.end) / 2;
+  const distance = (page: number) => Math.abs((page + 0.5) * rangeSize - middle);
+  const visibleMissing = pages.filter(missing).sort((a, b) => distance(a) - distance(b));
+  if (visibleMissing.length > 0) return visibleMissing[0];
+  if (pages.length === 0) return null;
+  const ahead = state.direction > 0 ? pages[pages.length - 1] + 1 : pages[0] - 1;
+  return missing(ahead) ? ahead : null;
 }

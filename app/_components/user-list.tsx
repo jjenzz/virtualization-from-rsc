@@ -28,7 +28,7 @@ export function UserList({ total }: { total: number }) {
       data={data?.items ?? []}
       offset={data?.start ?? 0}
       count={total}
-      itemSize={32}
+      defaultItemSize={45}
       rangeSize={PAGE}
       onRangeChange={setRange}
     >
@@ -41,6 +41,7 @@ export function UserList({ total }: { total: number }) {
                 <span className="name">{user.name}</span>
                 <span className="email">{user.email}</span>
                 <span className="age">{user.age}</span>
+                {user.bio && <span className="bio">{user.bio}</span>}
               </VirtualList.Item>
             ) : (
               <VirtualList.Item className="row" data-pending="">

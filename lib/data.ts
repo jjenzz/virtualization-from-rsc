@@ -1,7 +1,31 @@
-export type User = { id: number; name: string; email: string; age: number };
+export type User = { id: number; name: string; email: string; age: number; bio?: string };
 
 const FIRST = ['Ada', 'Grace', 'Linus', 'Barbara', 'Ken', 'Margaret', 'Dennis', 'Radia'];
 const LAST = ['Lovelace', 'Hopper', 'Torvalds', 'Liskov', 'Thompson', 'Hamilton', 'Ritchie', 'Perlman'];
+
+const SENTENCES = [
+  'Writes compilers for fun.',
+  'Maintains a popular open source scheduler and answers every issue within a day.',
+  'Previously led the storage team, and still keeps a spreadsheet of every outage since 2014.',
+  'Likes long walks and short functions.',
+  'Has opinions about tabs, spaces, and the correct number of blank lines between imports.',
+  'Currently learning Rust, slowly.',
+  'Speaks at conferences about distributed systems, type theory, and occasionally sourdough.',
+  'Mentors new engineers on Fridays.',
+];
+
+// A stable pseudo-random number per user, so a user always gets the same bio.
+const hash = (i: number) => (Math.imul(i + 1, 2654435761) >>> 0) / 2 ** 32;
+
+/** 0–3 sentences: about 40% of users have no bio, and some have a long one. */
+function bioOf(i: number): string | undefined {
+  const r = hash(i);
+  const sentences = r < 0.4 ? 0 : r < 0.7 ? 1 : r < 0.9 ? 2 : 3;
+  if (sentences === 0) return undefined;
+  return Array.from({ length: sentences }, (_, k) => SENTENCES[Math.floor(hash(i * 7 + k) * SENTENCES.length)]).join(
+    ' ',
+  );
+}
 
 // Deterministic fake data.
 function makeUser(i: number): User {
@@ -12,6 +36,7 @@ function makeUser(i: number): User {
     name: `${first} ${last}`,
     email: `${first.toLowerCase()}.${last.toLowerCase()}${i}@example.com`,
     age: 18 + (i % 60),
+    bio: bioOf(i),
   };
 }
 

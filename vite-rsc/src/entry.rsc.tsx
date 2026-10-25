@@ -40,7 +40,8 @@ export default async function handler(request: Request): Promise<Response> {
         {/* The client list (shared with the Next app) styles itself with these classes. */}
         <style>{`
           .viewport { height: 600px; border: 1px solid #ccc; }
-          .row { display: flex; gap: 16px; align-items: center; padding: 0 12px; }
+          .row { display: flex; flex-wrap: wrap; column-gap: 16px; align-items: center; min-height: 32px; padding: 6px 12px; border-bottom: 1px solid #eee; }
+          .bio { flex-basis: 100%; margin: 2px 0 0 64px; color: #666; }
           .row[data-pending] { color: #999; }
         `}</style>
       </head>

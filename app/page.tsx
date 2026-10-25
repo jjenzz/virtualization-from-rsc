@@ -38,7 +38,7 @@ export default async function Page({ searchParams }: PageProps<'/'>) {
       <div className="demos">
         <section>
           <h2>Server Component + stream rows</h2>
-          <VirtualList.Root id="users" data={usersStream} count={total} itemSize={32}>
+          <VirtualList.Root id="users" data={usersStream} count={total} defaultItemSize={45}>
             <VirtualList.Viewport className="viewport">
               <VirtualList.Items<User> rootId="users">
                 {async (user, index, status) => {
@@ -48,6 +48,7 @@ export default async function Page({ searchParams }: PageProps<'/'>) {
                       <span className="name">{user.name}</span>
                       <span className="email">{user.email}</span>
                       <span className="age">{user.age}</span>
+                      {user.bio && <span className="bio">{user.bio}</span>}
                     </VirtualList.Item>
                   ) : status === 'pending' ? (
                     <VirtualList.Item className="row" data-pending="">
@@ -66,7 +67,7 @@ export default async function Page({ searchParams }: PageProps<'/'>) {
 
         <section>
           <h2>Server Component + load server function on scroll</h2>
-          <VirtualList.Root id="users-on-scroll" data={usersOnScroll} count={total} itemSize={32}>
+          <VirtualList.Root id="users-on-scroll" data={usersOnScroll} count={total} defaultItemSize={45}>
             <VirtualList.Viewport className="viewport">
               <VirtualList.Items<User> rootId="users-on-scroll">
                 {async (user, index, status) => {
@@ -77,6 +78,7 @@ export default async function Page({ searchParams }: PageProps<'/'>) {
                       <span className="name">{user.name}</span>
                       <span className="email">{user.email}</span>
                       <span className="age">{user.age}</span>
+                      {user.bio && <span className="bio">{user.bio}</span>}
                     </VirtualList.Item>
                   ) : status === 'pending' ? (
                     <VirtualList.Item className="row" data-pending="">

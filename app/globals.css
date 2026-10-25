@@ -25,10 +25,17 @@ h2 {
 }
 .row {
   display: flex;
-  gap: 16px;
+  flex-wrap: wrap;
+  column-gap: 16px;
   align-items: center;
-  padding: 0 12px;
+  min-height: 32px;
+  padding: 6px 12px;
   border-bottom: 1px solid #eee;
+}
+.bio {
+  flex-basis: 100%;
+  margin: 2px 0 0 64px;
+  color: #666;
 }
 .row[data-pending] {
   color: #999;

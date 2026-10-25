@@ -4,7 +4,16 @@ import { getUsersRange, type User } from '../../lib/data';
 import { firstRange, usersQueryKey, type UsersWindow } from '../../lib/users-query';
 import { createDataset, VirtualList } from '../../lib/virtual-list/index.server';
 
-const row = { display: 'flex', gap: 16, padding: '0 12px', alignItems: 'center' };
+const row = {
+  display: 'flex',
+  flexWrap: 'wrap',
+  columnGap: 16,
+  alignItems: 'center',
+  minHeight: 32,
+  padding: '6px 12px',
+  borderBottom: '1px solid #eee',
+} as const;
+const bio = { flexBasis: '100%', margin: '2px 0 0 64px', color: '#666' };
 
 // The same three lists as the Next demo's app/page.tsx.
 export async function Page({ n }: { n: string | null }) {
@@ -40,7 +49,7 @@ export async function Page({ n }: { n: string | null }) {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))', gap: 16 }}>
         <section>
           <h2>Server Component + stream rows</h2>
-          <VirtualList.Root id="users" data={usersStream} count={total} itemSize={32}>
+          <VirtualList.Root id="users" data={usersStream} count={total} defaultItemSize={45}>
             <VirtualList.Viewport className="viewport">
               <VirtualList.Items<User> rootId="users">
                 {(user, index, status) => {
@@ -49,6 +58,11 @@ export async function Page({ n }: { n: string | null }) {
                       <span className="id">#{user.id}</span>
                       <span className="name">{user.name}</span>
                       <span className="email">{user.email}</span>
+                      {user.bio && (
+                        <span className="bio" style={bio}>
+                          {user.bio}
+                        </span>
+                      )}
                     </VirtualList.Item>
                   ) : status === 'pending' ? (
                     <VirtualList.Item style={row} data-pending="">
@@ -67,7 +81,7 @@ export async function Page({ n }: { n: string | null }) {
 
         <section>
           <h2>Server Component + load server function on scroll</h2>
-          <VirtualList.Root id="users-on-scroll" data={usersOnScroll} count={total} itemSize={32}>
+          <VirtualList.Root id="users-on-scroll" data={usersOnScroll} count={total} defaultItemSize={45}>
             <VirtualList.Viewport className="viewport">
               <VirtualList.Items<User> rootId="users-on-scroll">
                 {async (user, index, status) => {
@@ -77,6 +91,11 @@ export async function Page({ n }: { n: string | null }) {
                       <span className="id">#{user.id}</span>
                       <span className="name">{user.name}</span>
                       <span className="email">{user.email}</span>
+                      {user.bio && (
+                        <span className="bio" style={bio}>
+                          {user.bio}
+                        </span>
+                      )}
                     </VirtualList.Item>
                   ) : status === 'pending' ? (
                     <VirtualList.Item style={row} data-pending="">
