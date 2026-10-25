@@ -2,17 +2,27 @@
 
 import type { ReactNode } from 'react';
 import { Items as ItemsImpl } from './items';
+import { useDataContext, useRootContext } from './root';
 import type { ItemsProps } from './types';
 
 /**
  * Client build of <VirtualList.Items>. Renders the visible items from the
  * dataset on every render (items not in `items` yet have status "pending"), and reports the
  * visible range so the app can load what's missing. It never calls
- * `dataset.queryFn`; the app can, e.g. from onRangeChange.
+ * `dataset.getItems`: on the client, the app loads data and passes `items`.
  */
-export function Items<T>({ data: items, children: render, onRangeChange }: ItemsProps<T>): ReactNode {
+export function Items<T>({ children: render }: ItemsProps<T>): ReactNode {
+  const { rangeSize } = useRootContext();
+  const items = useDataContext<T>();
+  if (items.getItems) {
+    // Every row would stay "pending" forever, so fail loudly instead.
+    throw new Error(
+      '<VirtualList.Items> in a client component got a dataset with getItems. The client list never calls it: ' +
+        'load the data in your app (e.g. with React Query, from onRangeChange) and pass it as createDataset({ items }).',
+    );
+  }
   return (
-    <ItemsImpl count={items.count} initialCount={items.rangeSize} onRangeChange={onRangeChange}>
+    <ItemsImpl initialCount={rangeSize}>
       {(index) => {
         const item = items.itemAt(index);
         return item === undefined ? render(undefined, index, 'pending') : render(item, index, 'loaded');

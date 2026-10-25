@@ -26,5 +26,5 @@ export async function getUsersRange(start: number, end: number, total: number): 
 // fine at 10k and slow beyond ~100k (see README).
 export async function getN(searchParams: Promise<{ n?: string }>) {
   const { n } = await searchParams;
-  return Math.min(Math.max(Number(n) || 10_000, 1), 1_000_000);
+  return Math.min(Math.max(Number(n) || 5000, 1), 1_000_000);
 }

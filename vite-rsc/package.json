@@ -1,0 +1,22 @@
+{
+  "name": "virtualization-from-rsc-vite",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "5.104.5",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "react-server-dom-webpack": "19.3.0",
+    "rsc-html-stream": "0.0.8"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "6.1.2",
+    "@vitejs/plugin-rsc": "0.5.38",
+    "vite": "8.3.5"
+  }
+}

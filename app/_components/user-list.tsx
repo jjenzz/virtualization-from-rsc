@@ -1,69 +1,55 @@
 'use client';
 
-import { QueryClient, QueryClientProvider, useQueries } from '@tanstack/react-query';
+import { keepPreviousData, QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
 import { type PropsWithChildren, useState } from 'react';
-import { createDataset, VirtualList, type Range } from '#virtual-list';
+import { VirtualList, type Range } from '#virtual-list';
 import type { User } from '@/lib/data';
-import { Placeholder, UserRow } from './user-row';
-
-const PAGE = 50;
+import { firstRange, PAGE, usersQueryKey, type UsersWindow } from '@/lib/users-query';
 
 export function ReactQueryClientProvider(props: PropsWithChildren) {
   const [queryClient] = useState(() => new QueryClient());
   return <QueryClientProvider client={queryClient}>{props.children}</QueryClientProvider>;
 }
 
-// Client tree: data down, actions up. The list reports the visible range; the
-// app turns it into React Query queries and passes the results back as a dataset.
-export function UserList({ total, initialPage }: { total: number; initialPage: User[] }) {
-  const [range, setRange] = useState<Range>({ start: 0, end: PAGE });
-  const pageNumbers = pagesIn(range);
-
-  const results = useQueries({
-    queries: pageNumbers.map((p) => ({
-      queryKey: ['users', total, p],
-      initialData: p === 0 ? initialPage : undefined,
-      staleTime: Infinity,
-      queryFn: async ({ signal }: { signal: AbortSignal }) => {
-        const res = await fetch(`/api/users?start=${p * PAGE}&end=${(p + 1) * PAGE}&total=${total}`, { signal });
-        return res.json() as Promise<User[]>;
-      },
-    })),
-  });
-
-  const users = createDataset({
-    count: total,
-    rangeSize: PAGE,
-    items: Object.fromEntries(pageNumbers.map((p, i) => [p, results[i].data])),
+export function UserList({ total }: { total: number }) {
+  const [range, setRange] = useState<Range>(() => firstRange(total));
+  const { data } = useQuery({
+    queryKey: usersQueryKey(total, range),
+    placeholderData: keepPreviousData,
+    staleTime: Infinity,
+    queryFn: async ({ signal }) => {
+      const res = await fetch(`/api/users?start=${range.start}&end=${range.end}&total=${total}`, { signal });
+      return { start: range.start, items: (await res.json()) as User[] } satisfies UsersWindow;
+    },
   });
 
   return (
-    <>
-      <h2>Client Component</h2>
-      <VirtualList.Root itemSize={32}>
-        <VirtualList.Viewport className="viewport">
-          <VirtualList.Items data={users} onRangeChange={setRange}>
-            {(user, index) => {
-              return user ? (
-                <VirtualList.Item key={user.id} className="row">
-                  <span className="name">{user.name}</span>
-                  <span className="email">{user.email}</span>
-                  <span className="age">{user.age}</span>
-                </VirtualList.Item>
-              ) : (
-                <Placeholder key={index} />
-              );
-            }}
-          </VirtualList.Items>
-        </VirtualList.Viewport>
-      </VirtualList.Root>
-    </>
+    <VirtualList.Root
+      data={data?.items ?? []}
+      offset={data?.start ?? 0}
+      count={total}
+      itemSize={32}
+      rangeSize={PAGE}
+      onRangeChange={setRange}
+    >
+      <VirtualList.Viewport className="viewport">
+        <VirtualList.Items<User>>
+          {(user) => {
+            return user ? (
+              <VirtualList.Item className="row">
+                <span className="id">#{user.id}</span>
+                <span className="name">{user.name}</span>
+                <span className="email">{user.email}</span>
+                <span className="age">{user.age}</span>
+              </VirtualList.Item>
+            ) : (
+              <VirtualList.Item className="row" data-pending="">
+                Loading…
+              </VirtualList.Item>
+            );
+          }}
+        </VirtualList.Items>
+      </VirtualList.Viewport>
+    </VirtualList.Root>
   );
-}
-
-/** Page numbers that cover a range of indices. */
-function pagesIn({ start, end }: Range): number[] {
-  const pages: number[] = [];
-  for (let p = Math.floor(start / PAGE); p <= Math.floor((end - 1) / PAGE); p++) pages.push(p);
-  return pages;
 }

@@ -1,119 +1,54 @@
 # virtualization-from-rsc
 
 A proof of concept for a virtualized list with one API for Server and Client
-Components. Items come from a **dataset**; `children` renders one item.
+Components. Items come from a **dataset**, and `children` renders one item.
 
 ```tsx
-<VirtualList.Root itemSize={32}>
+<VirtualList.Root data={dataset} count={total} itemSize={32}>
   <VirtualList.Viewport>
-    <VirtualList.Items data={dataset}>
-      {(user) => (
-        <VirtualList.Item key={user.id}>
-          <span className="name">{user.name}</span>
-          <span className="email">{user.email}</span>
-          <span className="age">{user.age}</span>
-        </VirtualList.Item>
-      )}
+    <VirtualList.Items<User>>
+      {(user, index, status) => {
+        return user ? (
+          <VirtualList.Item>{user.name}</VirtualList.Item>
+        ) : status === 'pending' ? (
+          <VirtualList.Item data-pending="">Loading…</VirtualList.Item>
+        ) : status === 'error' ? (
+          <VirtualList.Item data-error="">Couldn&apos;t load row {index}</VirtualList.Item>
+        ) : null;
+      }}
     </VirtualList.Items>
   </VirtualList.Viewport>
 </VirtualList.Root>
 ```
 
-A dataset describes data; it doesn't load anything by itself. On the server, the
-list calls a dataset's `queryFn` while it streams (your function does the fetching; the
-list decides which ranges and when). On the client, the list never calls `queryFn` or
-fetches; it renders `items` and reports the visible range:
+`user` is defined exactly when the row loaded, so checking `user` narrows it. `status`
+tells the other cases apart.
 
-```ts
-createDataset({ count, rangeSize, queryFn }); // server: read batches while streaming
-createDataset({ count, rangeSize, items }); // data you have, by range number (client or server)
-```
-
-Run with `pnpm dev` and open `/` (add `?n=…` to change the item count; default 10k).
-Both demos are on that page.
-
-## Server Component
+`data` is either a source the server reads while rendering, or the items being
+rendered:
 
 ```tsx
-const users = createDataset({
-  queryFn: ({ start, end }) => getUsersRange(start, end),
-  count: total,
-  rangeSize: 50,
-});
-
-<VirtualList.Items data={users}>
-  {(user) => (
-    <VirtualList.Item key={user.id}>
-      <span className="name">{user.name}</span>
-      <span className="email">{user.email}</span>
-      <span className="age">{user.age}</span>
-    </VirtualList.Item>
-  )}
-</VirtualList.Items>;
+<VirtualList.Root data={createDataset({ getItems })}> // server
+<VirtualList.Root data={users} offset={first}>         // client: users[0] is item `first`
 ```
 
-- The first page is loaded, rendered and sent in the first chunk of HTML.
-- Every later page is loaded and rendered on a later tick and streamed **in the
-  same response**. Nothing is requested after the page arrives.
-- `children` runs only on the server, once per item, as `(item, index, status)`:
-  `"loaded"`, `"missing"` (`queryFn` returned no item for that index) or `"error"`
-  (`queryFn` threw for that chunk; render `null`, a message or a retry button).
-- Every row is sent, so this suits lists up to ~10k items. Rows past the first page
-  are blank until their part of the stream arrives.
-
-## Client Component (React Query)
-
-```tsx
-'use client';
-
-const [range, setRange] = useState({ start: 0, end: PAGE });
-const pageNumbers = pagesIn(range);
-const results = useQueries({
-  queries: pageNumbers.map((p) => ({
-    queryKey: ['users', p],
-    queryFn: ({ signal }) => fetchUsers(p * PAGE, (p + 1) * PAGE, signal),
-    initialData: p === 0 ? initialPage : undefined, // page 0 fetched by the Server Component
-    staleTime: Infinity,
-  })),
-});
-const users = createDataset({
-  count: total,
-  rangeSize: PAGE,
-  items: Object.fromEntries(pageNumbers.map((p, i) => [p, results[i].data])),
-});
-
-<VirtualList.Items data={users} onRangeChange={setRange}>
-  {(user) => {
-    return user ? (
-      <VirtualList.Item key={user.id}>
-        <span className="name">{user.name}</span>
-        <span className="email">{user.email}</span>
-        <span className="age">{user.age}</span>
-      </VirtualList.Item>
-    ) : (
-      <Placeholder />
-    );
-  }}
-</VirtualList.Items>;
-```
-
-- Data down, actions up: the list reports the visible `{ start, end }`, the app
-  turns it into queries, and the results come back as a dataset.
-- React Query handles dedupe, caching, retries and cancelling pages that scroll
-  away before they load. The dataset only holds the visible pages.
-- `onRangeChange` gives `start`/`end` rather than page numbers, so the app can map
-  the range onto whatever it loads (pages, cursors, infinite loading).
-- Items not loaded yet have status `"pending"` (and are `undefined`), so
-  `children` renders its own placeholder.
-- The Server Component fetches page 0 and passes it in as `initialData`, so this
-  list's first page is in the HTML too.
-
-See [app/page.tsx](app/page.tsx) and [app/_components/user-list.tsx](app/_components/user-list.tsx).
+Run `pnpm dev` and open `/` (`?n=…` sets the item count, default 5k). The page shows
+all three modes below.
 
 ## One import, two builds
 
-`#virtual-list` is mapped in `package.json` `"imports"` with the
-[`react-server` condition](https://github.com/reactjs/rfcs/blob/main/text/0227-server-module-conventions.md):
+A function can't be passed from a Server Component to a Client Component, so a
+render prop like `children` normally can't cross the boundary. The list gets around
+this by shipping two builds of `Items` behind one import:
+
+- **Server build:** `Items` is a Server Component. It calls `children` on the server
+  and sends the rendered rows to the browser, so the function itself never crosses.
+- **Client build:** `Items` is a Client Component, and calls `children` in the browser.
+
+`#virtual-list` picks the build with the
+[`react-server` condition](https://github.com/reactjs/rfcs/blob/main/text/0227-server-module-conventions.md)
+in `package.json` `"imports"`. Server Components get the server build and everything
+else gets the client build. As a package, this would be the same map under `"exports"`.
 
 ```json
 "#virtual-list": {
@@ -122,43 +57,165 @@ See [app/page.tsx](app/page.tsx) and [app/_components/user-list.tsx](app/_compon
 }
 ```
 
-Server Components get the server build; client components (and their SSR) get
-the client build. As a published package this would be the same map under
-`"exports"`. Only `Items` differs between the builds:
+## Modes
 
-| File                                   | Build  | Does                                                                                       |
-| -------------------------------------- | ------ | ------------------------------------------------------------------------------------------ |
-| `root.tsx`, `viewport.tsx`, `item.tsx` | both   | Shared parts (all `'use client'`).                                                         |
-| `dataset.ts`                           | both   | `createDataset`, `itemAt`.                                                                 |
-| `items-frame.tsx`, `types.ts`          | both   | Full-height list element: visible range, `onRangeChange`, item positions. Shared types.    |
-| `items.server.tsx`                     | server | Renders the first `rangeSize` items, then streams the rest in chunks of 1,000 as promises. |
-| `items-stream.tsx`                     | server | Client half: appends each streamed chunk as it arrives.                                    |
-| `items.client.tsx`                     | client | Renders visible items from the dataset; passes `onRangeChange` through.                    |
-| `index.server.ts` / `index.client.ts`  | —      | Entry points; build `VirtualList` with their build's `Items`.                              |
+| Where            | Dataset    | `children`                    | Rows are…                              |
+| ---------------- | ---------- | ----------------------------- | -------------------------------------- |
+| Server Component | `getItems` | a function                    | streamed in the page's response        |
+| Server Component | `getItems` | `'use server'`, as `getItems` | loaded page by page as you scroll      |
+| Client Component | `items`    | a function                    | rendered from data the app passes down |
 
-## Rules
+### Server Component: streamed
 
-- `children` renders one item. Don't call hooks in it; put them in the row
-  components it returns.
-- `children(item, index, status)` is synchronous in both builds. `item` is defined
-  when `status` is `"loaded"`; the type doesn't narrow (that would force every
-  consumer to declare all three parameters), so check `item` too.
-- A dataset has either `items` or `queryFn`, never both. The server list calls `queryFn`
-  while streaming; the client list never calls it (the app can, e.g. from `onRangeChange`).
+```tsx
+const users = createDataset({
+  getItems: ({ start, end }) => getUsersRange(start, end, total),
+});
 
-## How the server build streams
+<VirtualList.Root id="users" data={users} count={total} itemSize={32}>
+  <VirtualList.Viewport>
+    <VirtualList.Items<User> rootId="users">
+      {(user, index, status) => …}
+    </VirtualList.Items>
+  </VirtualList.Viewport>
+</VirtualList.Root>;
+```
 
-- The first `rangeSize` items are awaited, so they're in the first HTML chunk.
-- The rest go out in chunks of 1,000, each passed to the client half as a promise;
-  React keeps the response open and appends each one as it resolves.
-- Every chunk's promise is created up front, so none is chained to another.
-  Chaining them made React's dev build very slow and overflowed the stack at ~1M items.
-- Each chunk starts on a later tick (`setImmediate`). Starting them straight away
-  loaded, built and serialized every row before the first HTML was sent: the first
-  byte took 1–1.5 s at 100k items.
-- If `queryFn` throws for a chunk, that chunk's items render with status `"error"` and
-  the rest of the list carries on. If `children` itself throws, that chunk's rows are
-  left empty and logged. Either way every chunk has one row per index, so later rows
-  keep their positions.
-- The client half appends rows to one array and re-renders, rather than using
-  `use()` + Suspense, which would delay rows by ~300 ms (React's Suspense reveal throttle).
+- The first 50 rows are in the first chunk of HTML. The rest stream in the same
+  response, so nothing is requested after the page loads.
+- Every row is sent, so this suits lists up to roughly 10k–100k items.
+
+### Server Component: loaded on scroll
+
+Mark both `getItems` and `children` `'use server'`:
+
+```tsx
+const users = createDataset({
+  getItems: async ({ start, end }) => {
+    'use server';
+    return getUsersRange(start, end, total);
+  },
+});
+
+<VirtualList.Items<User> rootId="users">
+  {async (user, index, status) => {
+    'use server';
+    return …;
+  }}
+</VirtualList.Items>;
+```
+
+- The first page (`rangeSize` rows) is in the HTML. Each later page is one request
+  as it scrolls into view: the server fetches it with `getItems` and renders it with
+  `children`.
+- Next runs server functions one at a time, so pages are queued, and pages that
+  scroll away before their turn are skipped.
+- Both functions are public endpoints and can be called with any arguments. A request
+  renders at most 1,000 rows. Values a server function captures (like `total`) are
+  encrypted and sent to the browser, so don't capture large data.
+
+### Client Component
+
+```tsx
+'use client';
+
+const [range, setRange] = useState({ start: 0, end: 100 });
+const users = useUsers(range); // your data loading; returns the items for `range`
+
+<VirtualList.Root data={users} offset={range.start} count={total} itemSize={32} onRangeChange={setRange}>
+  <VirtualList.Viewport>
+    <VirtualList.Items<User>>
+      {(user) => {
+        return user ? (
+          <VirtualList.Item>{user.name}</VirtualList.Item>
+        ) : (
+          <VirtualList.Item data-pending="">Loading…</VirtualList.Item>
+        );
+      }}
+    </VirtualList.Items>
+  </VirtualList.Viewport>
+</VirtualList.Root>;
+```
+
+- Data down, actions up: the list reports the range to load, and the app passes back
+  only the items being rendered, with `offset` as the first one's index. The list never
+  fetches, so caching stays with your data library.
+- The reported range is snapped to whole pages (`rangeSize`), so the same rows always
+  give the same range, which makes it a good cache key.
+
+The demo loads ranges with React Query: see [user-list.tsx](app/_components/user-list.tsx).
+
+## API
+
+**`Root`** takes:
+
+- `data`: anything `createDataset` takes: options, an items array, or a dataset.
+- `offset`: the index of the first item in `data`. Defaults to 0.
+- `count`, `itemSize`, `overscan`.
+- `rangeSize`: the page size for reported ranges and loading on scroll. At least the
+  number of visible rows. Defaults to 50.
+- `onRangeChange` (client only): called with the `{ start, end }` to load.
+- `id`: the root element's id. In a Server Component, other parts link to `Root`
+  with it (`rootId`), described below.
+
+**`Items`** takes `children(item, index, status)`, which renders one row:
+
+- `status` is `"loaded"`, `"pending"`, `"missing"` or `"error"`. `item` is defined
+  only when loaded, so check `item` to narrow it.
+- Pass the item type on the tag: `<VirtualList.Items<User>>`.
+- No `key` needed, and no hooks in `children` itself. On the server it may be async.
+
+**`rootId`:** Server Components have no context, so in a Server Component `Root`
+takes an `id` and the other parts pass it as `rootId`, like `<input list>` pointing at
+a `<datalist id>`. The id is unique within the page. `Root` registers its dataset under
+it in a per-request `React.cache()` map, and `Items` looks it up.
+
+## Pending and failed rows
+
+Both server modes handle these the same way:
+
+| What happens                            | What the row shows                                               |
+| --------------------------------------- | ---------------------------------------------------------------- |
+| Not loaded yet                          | `children(undefined, -1, 'pending')`                             |
+| `getItems` throws                       | `children(undefined, index, 'error')` for each row in that range |
+| `getItems` returns no item for an index | `children(undefined, index, 'missing')`                          |
+| `children` throws for a row             | nothing (the error is logged)                                    |
+| The stream or a request fails           | `children(undefined, -1, 'error')`                               |
+
+- The two rows rendered with index -1 are rendered once and reused for every row.
+- When loading on scroll, a page whose request failed is requested again when it
+  comes back into view.
+
+## Files
+
+| File                                      | Build  | Does                                                                 |
+| ----------------------------------------- | ------ | -------------------------------------------------------------------- |
+| `root.tsx`, `viewport.tsx`, `item.tsx`    | both   | Shared client parts: visible range, scrolling, row positions.        |
+| `items.tsx`, `dataset.ts`, `types.ts`     | both   | List element, `createDataset`, types.                                |
+| `items.client.tsx`                        | client | Renders visible rows from `items`.                                   |
+| `root.server.tsx`, `list-store.server.ts` | server | Registers `Root`'s dataset under its `id`.                           |
+| `items.server.tsx`                        | server | Picks the mode, renders the first rows, streams the rest.            |
+| `render-rows.server.ts`                   | server | Fetching and row rendering shared by both server modes.              |
+| `render-range.server.ts`                  | server | `'use server'`: fetches and renders one page when loading on scroll. |
+| `items-stream.tsx`, `items-loader.tsx`    | server | Client halves of the two modes.                                      |
+
+## How streaming works
+
+- Rows are fetched in pages of 1,000. Up to 4 `getItems` calls run ahead, but pages
+  are rendered and sent in order.
+- Each page is sent as slices. The list times each slice and sizes the next one to
+  take about 10 ms, waiting a turn of the event loop between slices so the framework
+  can send what's ready. That's a few dozen rows per slice in Next dev and a whole page
+  in production, without any per-framework settings.
+- Each slice is a promise passed to the client half, which writes the rows at their
+  indices as they arrive.
+
+## Vite
+
+[`vite-rsc/`](vite-rsc) renders the same three lists with `@vitejs/plugin-rsc`, using
+`lib/virtual-list` and the client list unchanged. Its RSC entry also serves
+`/api/users` and handles server function calls for the load-on-scroll list:
+
+```sh
+cd vite-rsc && pnpm install && pnpm dev   # or: pnpm build && pnpm preview
+```

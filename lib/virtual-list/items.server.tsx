@@ -1,72 +1,161 @@
 import type { ReactNode } from 'react';
-import { ItemsStream } from './items-stream';
+import { ItemsLoader } from './items-loader';
+import { ItemsStream, type Slice } from './items-stream';
+import { getList } from './list-store.server';
+import { renderRange } from './render-range.server';
+import { fetchRows, renderRows, renderTemplate, type Fetched } from './render-rows.server';
+import { isServerFunction } from '../server-function';
 import { indicesOf, type ItemsProps, type Range } from './types';
 
-/** Items per streamed chunk after the first range. Fewer, larger chunks mean far
- * fewer promises, which matters a lot in React's dev build. */
-const CHUNK_SIZE = 1000;
+/** Items in the first chunk, sent with the first HTML. */
+const FIRST_CHUNK_SIZE = 50;
 
-/** Waits for a later turn of the event loop, so pending HTML can be sent first. */
+/**
+ * Items per page after the first chunk. Pages are fixed and known up front: the
+ * client gets one promise per page, and each page is the unit of data fetching.
+ */
+const PAGE_SIZE = 1000;
+
+/** Page fetches allowed to run ahead of rendering at once. */
+const FETCH_CONCURRENCY = 4;
+
+/**
+ * Target time for each turn of rendering, including React serializing what was
+ * rendered. Keeping every turn short lets the framework's HTML pipeline (however
+ * many steps it has) send what's ready between turns, without tuning per framework.
+ */
+const TURN_BUDGET_MS = 10;
+
+/** Smallest slice, so a very slow row doesn't produce one promise per row. */
+const MIN_SLICE_SIZE = 10;
+
+/** Waits for a later turn of the event loop. */
 const nextTick = () =>
   new Promise<void>((resolve) => (typeof setImmediate === 'function' ? setImmediate(resolve) : setTimeout(resolve, 0)));
 
+const now = () => performance.now();
+
+function split(range: Range, size: number): Range[] {
+  const ranges: Range[] = [];
+  for (let start = range.start; start < range.end; start += size) {
+    ranges.push({ start, end: Math.min(range.end, start + size) });
+  }
+  return ranges;
+}
+
 /**
  * Server build of <VirtualList.Items>. `children` runs only here, once per item.
- * The first `rangeSize` items are awaited so they're in the first HTML chunk; the
- * rest follow in chunks of CHUNK_SIZE, each passed down as a promise that React
- * streams in the same response. If the dataset has `queryFn`, each chunk's data is
- * loaded just before that chunk is rendered; otherwise it's read from `items`.
- * If `queryFn` throws, that chunk's rows render with status "error" and the rest of
- * the list carries on. Nothing is loaded after the page arrives.
+ * The first FIRST_CHUNK_SIZE items are awaited so they're in the first HTML chunk.
+ * The rest is split into fixed pages; each page resolves to slices sized so that
+ * rendering and serializing a slice takes about TURN_BUDGET_MS, measured as we go
+ * (about a page per slice in production, a few dozen rows in React's dev build).
+ * Up to FETCH_CONCURRENCY pages are fetched in parallel ahead of rendering; pages
+ * and slices are still rendered and sent in order.
+ *
+ * Both modes handle pending and failed rows the same way (see render-rows.server.ts):
+ * rows not loaded yet show `children(undefined, -1, 'pending')`; if `getItems` throws,
+ * its rows render with status "error"; if the stream or a request fails, rows that
+ * never arrived show `children(undefined, -1, 'error')`.
+ *
+ * If `getItems` and `children` are both `'use server'` functions, the list loads on
+ * scroll instead (see `loadOnScroll`).
  */
-export async function Items<T>({ data: dataset, children: render }: ItemsProps<T>): Promise<ReactNode> {
-  const { count, rangeSize } = dataset;
+export async function Items<T>({ rootId, children: render }: ItemsProps<T>): Promise<ReactNode> {
+  // Read before any await: the dataset and layout values Root registered under its id.
+  const { dataset, count, rangeSize } = getList<T>(rootId, 'Items');
 
-  // Renders a range. If `queryFn` throws, the range's items render with status
-  // "error" instead, so one failed chunk doesn't affect the rest of the list.
-  const renderRange = async (range: Range): Promise<ReactNode[]> => {
-    const indices = indicesOf(range);
-    let data: (T | undefined)[];
-    try {
-      data = dataset.queryFn ? await dataset.queryFn(range) : indices.map((i) => dataset.itemAt(i));
-    } catch (error) {
-      console.error(`<VirtualList.Items> queryFn failed for items ${range.start}-${range.end - 1}.`, error);
-      return indices.map((index) => render(undefined, index, 'error'));
-    }
-    return indices.map((index, k) => {
-      const item = data[k];
-      return item === undefined ? render(undefined, index, 'missing') : render(item, index, 'loaded');
-    });
-  };
+  const serverGetItems = isServerFunction(dataset.getItems);
+  const serverRender = isServerFunction(render);
 
-  const first = await renderRange({ start: 0, end: Math.min(count, rangeSize) });
+  if (serverGetItems && serverRender) {
+    const [first, placeholder, errorRow] = await Promise.all([
+      renderRange(dataset.getItems, render, count, { start: 0, end: Math.min(count, rangeSize) }),
+      renderTemplate(render, 'pending'),
+      renderTemplate(render, 'error'),
+    ]);
 
-  // One promise per later chunk, all created here so none is chained to another
-  // (chaining them made React's dev build very slow, and overflow the stack at ~1M items).
-  const pending: { range: Range; resolve: (rows: ReactNode[]) => void }[] = [];
-  const chunks: Promise<ReactNode[]>[] = [];
-  for (let start = first.length; start < count; start += CHUNK_SIZE) {
-    const { promise, resolve } = Promise.withResolvers<ReactNode[]>();
-    pending.push({ range: { start, end: Math.min(count, start + CHUNK_SIZE) }, resolve });
-    chunks.push(promise);
+    return (
+      <ItemsLoader
+        first={first}
+        placeholder={placeholder}
+        errorRow={errorRow}
+        loadRange={(renderRange<T>).bind(null, dataset.getItems, render, count)}
+      />
+    );
   }
 
-  // Render the chunks one after another, each on a later tick. Starting them all
-  // straight away would load, build and serialize every row before the first
-  // HTML is sent. Every chunk resolves with one row per index, so rows after a
-  // problem keep their positions.
+  if (serverRender && !serverGetItems) {
+    throw new Error(
+      `<VirtualList.Items rootId="${rootId}">: children is a 'use server' function, so the dataset's getItems ` +
+        "must be one too. Add 'use server' to getItems, or remove it from children to stream every row.",
+    );
+  }
+
+  const fetchRange = (range: Range) =>
+    fetchRows<T>((r) => (dataset.getItems ? dataset.getItems(r) : indicesOf(r).map((i) => dataset.itemAt(i))), range);
+
+  const firstRange = { start: 0, end: Math.min(count, FIRST_CHUNK_SIZE) };
+  const pageRanges = split({ start: firstRange.end, end: count }, PAGE_SIZE);
+
+  // Fetch in parallel, render in order. Up to FETCH_CONCURRENCY page fetches run
+  // ahead of the render loop; each time it takes a page, the next fetch starts.
+  const fetches: Promise<Fetched<T>>[] = [];
+  let rendered = 0;
+  const fetchAhead = () => {
+    while (fetches.length < pageRanges.length && fetches.length < rendered + FETCH_CONCURRENCY) {
+      fetches.push(fetchRange(pageRanges[fetches.length]));
+    }
+  };
+
+  const firstFetched = await fetchRange(firstRange);
+  // Start the page fetches only now: started alongside the first chunk, their
+  // results arrived with it and delayed the first HTML.
+  fetchAhead();
+  const [first, placeholder, errorRow] = await Promise.all([
+    renderRows(render, firstRange, firstFetched, 0),
+    renderTemplate(render, 'pending'),
+    renderTemplate(render, 'error'),
+  ]);
+
+  // One promise per page, all created here so none is chained to another
+  // (chaining them made React's dev build very slow, and overflow the stack at ~1M items).
+  const pages = pageRanges.map(() => Promise.withResolvers<Promise<Slice>[]>());
+
   void (async () => {
-    for (const { range, resolve } of pending) {
+    // Measured cost per row (render + serialize), smoothed. Starts unknown, so the
+    // first page uses small slices and later pages adjust to what was measured.
+    let msPerRow: number | undefined;
+    for (let k = 0; k < pageRanges.length; k++) {
       await nextTick();
-      try {
-        resolve(await renderRange(range));
-      } catch (error) {
-        // `children` itself threw: leave these rows empty.
-        console.error(`<VirtualList.Items> children threw for items ${range.start}-${range.end - 1}.`, error);
-        resolve(indicesOf(range).map(() => null));
+      const page = pageRanges[k];
+      const fetched = await fetches[k];
+      rendered = k + 1;
+      fetchAhead();
+
+      const sliceSize =
+        msPerRow === undefined
+          ? FIRST_CHUNK_SIZE
+          : Math.max(MIN_SLICE_SIZE, Math.min(PAGE_SIZE, Math.floor(TURN_BUDGET_MS / msPerRow)));
+      const sliceRanges = split(page, sliceSize);
+      const slices = sliceRanges.map(() => Promise.withResolvers<Slice>());
+      pages[k].resolve(slices.map((s) => s.promise));
+
+      for (let j = 0; j < sliceRanges.length; j++) {
+        const range = sliceRanges[j];
+        await nextTick();
+        const started = now();
+        const rows = await renderRows(render, range, fetched, page.start);
+        slices[j].resolve({ start: range.start, rows });
+        // React serializes the resolved slice before we get the next turn, so the
+        // time until then is the slice's full cost.
+        await nextTick();
+        const sample = (now() - started) / rows.length;
+        msPerRow = msPerRow === undefined ? sample : msPerRow * 0.7 + sample * 0.3;
       }
     }
   })();
 
-  return <ItemsStream count={count} first={first} chunks={chunks} />;
+  return (
+    <ItemsStream first={first} placeholder={placeholder} errorRow={errorRow} pages={pages.map((p) => p.promise)} />
+  );
 }

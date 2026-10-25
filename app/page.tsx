@@ -1,41 +1,63 @@
 import { createDataset, VirtualList } from '#virtual-list';
-import { getN, getUsersRange } from '@/lib/data';
+import { getN, getUsersRange, type User } from '@/lib/data';
+import { dehydrate, HydrationBoundary, QueryClient } from '@tanstack/react-query';
 import { ReactQueryClientProvider, UserList } from './_components/user-list';
+import { firstRange, usersQueryKey, type UsersWindow } from '@/lib/users-query';
 import { RetryButton } from './_components/retry-button';
 
-// Both demos side by side, both rendering items from a dataset.
-// Server list: the list calls `queryFn` while the server streams it.
-// Client list: React Query loads the visible pages; the list only renders them.
 export default async function Page({ searchParams }: PageProps<'/'>) {
   const total = await getN(searchParams);
-  const users = createDataset({
-    queryFn: ({ start, end }) => getUsersRange(start, end, total),
-    rangeSize: 50,
-    count: total,
+  const usersStream = createDataset({
+    getItems: ({ start, end }) => getUsersRange(start, end, total),
   });
+
+  const usersOnScroll = createDataset({
+    getItems: async ({ start, end }) => {
+      'use server';
+      return getUsersRange(start, end, total);
+    },
+  });
+
+  // The client list's first range, prefetched here and handed to its cache, so its
+  // first rows are in the HTML and it doesn't fetch them again.
+  const queryClient = new QueryClient();
+  const first = firstRange(total);
+  await queryClient
+    .query({
+      queryKey: usersQueryKey(total, first),
+      queryFn: async (): Promise<UsersWindow> => ({
+        items: await getUsersRange(first.start, first.end, total),
+        start: 0,
+      }),
+    })
+    .catch(() => {});
 
   return (
     <main>
       <h1>{total.toLocaleString()} users</h1>
       <div className="demos">
         <section>
-          <h2>Server Component</h2>
-          <VirtualList.Root itemSize={32}>
+          <h2>Server Component + stream rows</h2>
+          <VirtualList.Root id="users" data={usersStream} count={total} itemSize={32}>
             <VirtualList.Viewport className="viewport">
-              <VirtualList.Items data={users}>
-                {(user, index, status) => {
-                  if (!user) return null;
-                  return status === 'error' ? (
-                    <VirtualList.Item key={index} className="row" data-error="">
-                      Couldn&apos;t load this row <RetryButton />
-                    </VirtualList.Item>
-                  ) : (
-                    <VirtualList.Item key={user.id} className="row">
+              <VirtualList.Items<User> rootId="users">
+                {async (user, index, status) => {
+                  return user ? (
+                    <VirtualList.Item className="row">
+                      <span className="id">#{user.id}</span>
                       <span className="name">{user.name}</span>
                       <span className="email">{user.email}</span>
                       <span className="age">{user.age}</span>
                     </VirtualList.Item>
-                  );
+                  ) : status === 'pending' ? (
+                    <VirtualList.Item className="row" data-pending="">
+                      Loading…
+                    </VirtualList.Item>
+                  ) : status === 'error' ? (
+                    <VirtualList.Item className="row" data-error="">
+                      Couldn&apos;t load row {index} <RetryButton />
+                    </VirtualList.Item>
+                  ) : null;
                 }}
               </VirtualList.Items>
             </VirtualList.Viewport>
@@ -43,8 +65,40 @@ export default async function Page({ searchParams }: PageProps<'/'>) {
         </section>
 
         <section>
+          <h2>Server Component + load server function on scroll</h2>
+          <VirtualList.Root id="users-on-scroll" data={usersOnScroll} count={total} itemSize={32}>
+            <VirtualList.Viewport className="viewport">
+              <VirtualList.Items<User> rootId="users-on-scroll">
+                {async (user, index, status) => {
+                  'use server';
+                  return user ? (
+                    <VirtualList.Item className="row">
+                      <span className="id">#{user.id}</span>
+                      <span className="name">{user.name}</span>
+                      <span className="email">{user.email}</span>
+                      <span className="age">{user.age}</span>
+                    </VirtualList.Item>
+                  ) : status === 'pending' ? (
+                    <VirtualList.Item className="row" data-pending="">
+                      Loading…
+                    </VirtualList.Item>
+                  ) : status === 'error' ? (
+                    <VirtualList.Item className="row" data-error="">
+                      Couldn&apos;t load row {index} <RetryButton />
+                    </VirtualList.Item>
+                  ) : null;
+                }}
+              </VirtualList.Items>
+            </VirtualList.Viewport>
+          </VirtualList.Root>
+        </section>
+
+        <section>
+          <h2>Client Component + fetch on scroll</h2>
           <ReactQueryClientProvider>
-            <UserList total={total} initialPage={await getUsersRange(0, 50, total)} />
+            <HydrationBoundary state={dehydrate(queryClient)}>
+              <UserList total={total} />
+            </HydrationBoundary>
           </ReactQueryClientProvider>
         </section>
       </div>

@@ -21,7 +21,6 @@ export function Item({ style, ...props }: ComponentProps<'div'>) {
       style={{ position: 'absolute', insetInline: 0, top: item.index * itemSize, height: itemSize, ...style }}
     >
       {props.children}
-      <button onClick={() => alert('tes')}>boop</button>
     </div>
   );
 }

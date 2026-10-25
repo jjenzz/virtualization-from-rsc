@@ -49,3 +49,8 @@ h2 {
   width: 40px;
   text-align: right;
 }
+.id {
+  width: 48px;
+  color: #888;
+  font-variant-numeric: tabular-nums;
+}

@@ -6,6 +6,6 @@ import { Viewport } from './viewport';
 
 export const VirtualList = { Root, Viewport, Items, Item };
 export { createDataset } from './dataset';
-export type { Dataset, DatasetOptions, QueryFn } from './dataset';
+export type { Dataset, DatasetInput, DatasetOptions, GetItems } from './dataset';
 export type { ItemStatus, ItemsProps, Range, RenderItem } from './types';
 export type { RootProps } from './root';

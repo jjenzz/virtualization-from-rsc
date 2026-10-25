@@ -13,8 +13,10 @@ export function Viewport({ style, onScroll, ...props }: ComponentProps<'div'>) {
     const observer = new ResizeObserver(() => setViewportHeight(element.clientHeight));
     observer.observe(element);
     setViewportHeight(element.clientHeight);
+    // The user may have scrolled before hydration, and React doesn't replay that scroll event.
+    setScrollTop(element.scrollTop);
     return () => observer.disconnect();
-  }, [setViewportHeight]);
+  }, [setViewportHeight, setScrollTop]);
 
   return (
     <div
