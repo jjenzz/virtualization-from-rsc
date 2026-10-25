@@ -107,9 +107,8 @@ export interface RootProps extends ComponentProps<'div'> {
   overscan?: number;
   /**
    * The page size: ranges passed to `onRangeChange` are whole pages of this size,
-   * a server list loading on scroll loads pages of this size, and this many items
-   * render before the viewport is measured. Make it at least the number of visible
-   * rows. Default 50.
+   * and this many items render before the viewport is measured. Make it at least
+   * the number of visible rows. Default 50.
    */
   rangeSize?: number;
   /**

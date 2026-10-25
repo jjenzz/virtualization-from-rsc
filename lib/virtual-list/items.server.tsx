@@ -1,10 +1,7 @@
 import type { ReactNode } from 'react';
-import { ItemsLoader } from './items-loader';
 import { ItemsStream, type Slice } from './items-stream';
 import { getList } from './list-store.server';
-import { renderRange } from './render-range.server';
 import { fetchRows, renderRows, renderTemplate, type Fetched } from './render-rows.server';
-import { isServerFunction } from '../server-function';
 import { indicesOf, type ItemsProps, type Range } from './types';
 
 /** Items in the first chunk, sent with the first HTML. */
@@ -52,44 +49,13 @@ function split(range: Range, size: number): Range[] {
  * Up to FETCH_CONCURRENCY pages are fetched in parallel ahead of rendering; pages
  * and slices are still rendered and sent in order.
  *
- * Both modes handle pending and failed rows the same way (see render-rows.server.ts):
- * rows not loaded yet show `children(undefined, -1, 'pending')`; if `getItems` throws,
- * its rows render with status "error"; if the stream or a request fails, rows that
- * never arrived show `children(undefined, -1, 'error')`.
- *
- * If `getItems` and `children` are both `'use server'` functions, the list loads on
- * scroll instead (see `loadOnScroll`).
+ * Rows not arrived yet show `children(undefined, -1, 'pending')`; if `getItems` throws,
+ * its rows render with status "error"; if the stream fails, rows that never arrived
+ * show `children(undefined, -1, 'error')` (see render-rows.server.ts).
  */
 export async function Items<T>({ rootId, children: render }: ItemsProps<T>): Promise<ReactNode> {
   // Read before any await: the dataset and layout values Root registered under its id.
   const { dataset, count, rangeSize } = getList<T>(rootId, 'Items');
-
-  const serverGetItems = isServerFunction(dataset.getItems);
-  const serverRender = isServerFunction(render);
-
-  if (serverGetItems && serverRender) {
-    const [first, placeholder, errorRow] = await Promise.all([
-      renderRange(dataset.getItems, render, count, { start: 0, end: Math.min(count, rangeSize) }),
-      renderTemplate(render, 'pending'),
-      renderTemplate(render, 'error'),
-    ]);
-
-    return (
-      <ItemsLoader
-        first={first}
-        placeholder={placeholder}
-        errorRow={errorRow}
-        loadRange={(renderRange<T>).bind(null, dataset.getItems, render, count)}
-      />
-    );
-  }
-
-  if (serverRender && !serverGetItems) {
-    throw new Error(
-      `<VirtualList.Items rootId="${rootId}">: children is a 'use server' function, so the dataset's getItems ` +
-        "must be one too. Add 'use server' to getItems, or remove it from children to stream every row.",
-    );
-  }
 
   const fetchRange = (range: Range) =>
     fetchRows<T>((r) => (dataset.getItems ? dataset.getItems(r) : indicesOf(r).map((i) => dataset.itemAt(i))), range);

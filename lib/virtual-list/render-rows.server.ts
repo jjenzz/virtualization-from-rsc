@@ -2,8 +2,7 @@ import { createElement, Fragment, type ReactNode } from 'react';
 import { indicesOf, type ItemStatus, type Range, type RenderItem } from './types';
 
 /**
- * Fetching and rendering shared by both server modes (streaming and loading on
- * scroll), so pending, error and throwing rows behave the same in both:
+ * Fetching and rendering for the server build's stream:
  * - `getItems` throws: the range's rows render with status "error" and their index.
  * - `getItems` returns no item for an index: that row renders with status "missing".
  * - `children` throws for a row: that row renders nothing and the error is logged.

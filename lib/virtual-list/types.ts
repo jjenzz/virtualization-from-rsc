@@ -10,13 +10,13 @@ export interface Range {
 /**
  * - `loaded`: `item` is defined.
  * - `pending`: the item isn't loaded yet. Client: its range isn't in the dataset's
- *   `items`. Server (streaming or loading on scroll): `children` is called once with
- *   index -1 to render the placeholder shown for every row not loaded yet.
+ *   `items`. Server: `children` is called once with index -1 to render the
+ *   placeholder shown for every row whose part of the stream hasn't arrived.
  * - `missing`: server only. `getItems` returned no item for this index (it returned
  *   fewer items than the range asked for).
  * - `error`: server only. `getItems` threw for the chunk containing this index. Also
- *   called once with index -1 to render the row shown when the stream or a request
- *   fails before a row arrives.
+ *   called once with index -1 to render the row shown when the stream fails before
+ *   a row arrives.
  */
 export type ItemStatus = 'loaded' | 'pending' | 'missing' | 'error';
 

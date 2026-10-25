@@ -1,9 +1,4 @@
-import {
-  createTemporaryReferenceSet,
-  decodeReply,
-  loadServerAction,
-  renderToReadableStream,
-} from '@vitejs/plugin-rsc/rsc';
+import { renderToReadableStream } from '@vitejs/plugin-rsc/rsc';
 import { getUsersRange } from '../../lib/data';
 import { Page } from './page';
 
@@ -14,22 +9,6 @@ export default async function handler(request: Request): Promise<Response> {
   if (url.pathname === '/api/users') {
     const param = (name: string) => Number(url.searchParams.get(name));
     return Response.json(await getUsersRange(param('start'), param('end'), param('total')));
-  }
-
-  // A server function call (load-on-scroll list). Runs it and returns its result as
-  // an RSC stream; the page isn't re-rendered.
-  const actionId = request.headers.get('x-rsc-action');
-  if (request.method === 'POST' && actionId) {
-    const temporaryReferences = createTemporaryReferenceSet();
-    const body = request.headers.get('content-type')?.startsWith('multipart/form-data')
-      ? await request.formData()
-      : await request.text();
-    const args = await decodeReply(body, { temporaryReferences });
-    const action = await loadServerAction(actionId);
-    const result = Promise.resolve().then(() => action.apply(null, args));
-    return new Response(renderToReadableStream(result, { temporaryReferences }), {
-      headers: { 'content-type': 'text/x-component;charset=utf-8' },
-    });
   }
 
   const rscStream = renderToReadableStream(

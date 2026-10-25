@@ -11,13 +11,6 @@ export default async function Page({ searchParams }: PageProps<'/'>) {
     getItems: ({ start, end }) => getUsersRange(start, end, total),
   });
 
-  const usersOnScroll = createDataset({
-    getItems: async ({ start, end }) => {
-      'use server';
-      return getUsersRange(start, end, total);
-    },
-  });
-
   // The client list's first range, prefetched here and handed to its cache, so its
   // first rows are in the HTML and it doesn't fetch them again.
   const queryClient = new QueryClient();
@@ -42,36 +35,6 @@ export default async function Page({ searchParams }: PageProps<'/'>) {
             <VirtualList.Viewport className="viewport">
               <VirtualList.Items<User> rootId="users">
                 {async (user, index, status) => {
-                  return user ? (
-                    <VirtualList.Item className="row">
-                      <span className="id">#{user.id}</span>
-                      <span className="name">{user.name}</span>
-                      <span className="email">{user.email}</span>
-                      <span className="age">{user.age}</span>
-                      {user.bio && <span className="bio">{user.bio}</span>}
-                    </VirtualList.Item>
-                  ) : status === 'pending' ? (
-                    <VirtualList.Item className="row" data-pending="">
-                      Loading…
-                    </VirtualList.Item>
-                  ) : status === 'error' ? (
-                    <VirtualList.Item className="row" data-error="">
-                      Couldn&apos;t load row {index} <RetryButton />
-                    </VirtualList.Item>
-                  ) : null;
-                }}
-              </VirtualList.Items>
-            </VirtualList.Viewport>
-          </VirtualList.Root>
-        </section>
-
-        <section>
-          <h2>Server Component + load server function on scroll</h2>
-          <VirtualList.Root id="users-on-scroll" data={usersOnScroll} count={total} defaultItemSize={45}>
-            <VirtualList.Viewport className="viewport">
-              <VirtualList.Items<User> rootId="users-on-scroll">
-                {async (user, index, status) => {
-                  'use server';
                   return user ? (
                     <VirtualList.Item className="row">
                       <span className="id">#{user.id}</span>
