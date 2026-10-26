@@ -35,11 +35,28 @@ export interface ItemsProps<T> {
    */
   rootId?: string;
   /**
+   * Server Components only, in a grouped list: the index of the group these items
+   * belong to, as passed to the `Groups` function. Client components get it from
+   * the enclosing `Group` and ignore this.
+   */
+  groupIndex?: number;
+  /**
    * Renders one item. Don't call hooks here; put them in the components it returns.
    * The item type can't be inferred from `Root`'s data, so pass it on the tag:
    * `<VirtualList.Items<User>>`.
    */
   children: RenderItem<T>;
+}
+
+export interface GroupsProps<G> {
+  /** Server Components only: the `id` of the `Root` whose groups to render. */
+  rootId?: string;
+  /**
+   * Renders one group, usually a `Group` with a `GroupLabel` and the group's
+   * `Items`. Called with the group object from the dataset's `groups` and its
+   * index. Pass the group type on the tag: `<VirtualList.Groups<Category>>`.
+   */
+  children: (group: G, groupIndex: number) => ReactNode;
 }
 
 /** Default for `Root`'s `rangeSize`. */

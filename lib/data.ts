@@ -28,7 +28,7 @@ function bioOf(i: number): string | undefined {
 }
 
 // Deterministic fake data.
-function makeUser(i: number): User {
+export function makeUser(i: number): User {
   const first = FIRST[i % 8];
   const last = LAST[(i >> 3) % 8];
   return {
@@ -52,4 +52,17 @@ export async function getUsersRange(start: number, end: number, total: number): 
 export async function getN(searchParams: Promise<{ n?: string }>) {
   const { n } = await searchParams;
   return Math.min(Math.max(Number(n) || 5000, 1), 1_000_000);
+}
+
+export type Team = { id: number; name: string; size: number };
+
+/** Users split into teams of 5–120, in order, covering all `total` users. */
+export function getTeams(total: number): Team[] {
+  const teams: Team[] = [];
+  for (let used = 0, i = 0; used < total; i++) {
+    const size = Math.min(total - used, 5 + Math.floor(hash(i * 13 + 5) * 116));
+    teams.push({ id: i, name: `Team ${i + 1}`, size });
+    used += size;
+  }
+  return teams;
 }

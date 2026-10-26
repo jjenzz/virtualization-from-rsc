@@ -32,8 +32,15 @@ rendered:
 <VirtualList.Root data={users} offset={first}>         // client: users[0] is item `first`
 ```
 
-Run `pnpm dev` and open `/` (`?n=…` sets the item count, default 5k). The page shows
-both lists below.
+Run `pnpm dev` and open `/`. Each demo has its own route, linked from the nav
+(`?n=…` sets the item count, default 5k):
+
+| Route            | Demo                                                      |
+| ---------------- | --------------------------------------------------------- |
+| `/streamed`      | [Server Component + stream rows](app/streamed/page.tsx)   |
+| `/client`        | [Client Component + fetch on scroll](app/client/page.tsx) |
+| `/server-groups` | [Server Component + groups](app/server-groups/page.tsx)   |
+| `/client-groups` | [Client Component + groups](app/client-groups/page.tsx)   |
 
 ## One import, two builds
 
@@ -92,7 +99,7 @@ const users = createDataset({
 'use client';
 
 const [range, setRange] = useState({ start: 0, end: 100 });
-const users = useUsers(range); // your data loading; returns the items for `range`
+const users = loadUsers(range); // however your app loads data; the items for `range`
 
 <VirtualList.Root data={users} offset={range.start} count={total} itemSize={32} onRangeChange={setRange}>
   <VirtualList.Viewport>
@@ -114,6 +121,12 @@ const users = useUsers(range); // your data loading; returns the items for `rang
   fetches, so caching stays with your data library.
 - The reported range is snapped to whole pages (`rangeSize`), so the same rows always
   give the same range, which makes it a good cache key.
+- While the scrollbar is dragged, a range is reported once the thumb settles in it
+  (120 ms), at least every 400 ms, and on release, so a fast drag doesn't request every
+  range it crosses. Pass your data library's abort signal to `fetch` so requests for
+  ranges already scrolled past are cancelled (React Query does this).
+- Placeholder rows and group labels don't feed the average row height, so a stretch of
+  "Loading…" rows doesn't shrink the scrollbar.
 
 The demo loads ranges with React Query: see [user-list.tsx](app/_components/user-list.tsx).
 
@@ -123,7 +136,9 @@ The demo loads ranges with React Query: see [user-list.tsx](app/_components/user
 
 - `data`: anything `createDataset` takes: options, an items array, or a dataset.
 - `offset`: the index of the first item in `data`. Defaults to 0.
-- `count`, `overscan`.
+- `count`: how many items, or for a grouped list one number per group. Optional for a
+  complete items array.
+- `overscan`.
 - `itemSize` for rows of one fixed height, or `defaultItemSize` for rows of different
   heights. Measured rows size themselves; unmeasured rows count as the estimate.
 - `rangeSize`: the page size for reported ranges. At least the number of visible rows.
@@ -140,9 +155,48 @@ The demo loads ranges with React Query: see [user-list.tsx](app/_components/user
 - No `key` needed, and no hooks in `children` itself. On the server it may be async.
 
 **`rootId`:** Server Components have no context, so in a Server Component `Root`
-takes an `id` and the other parts pass it as `rootId`, like `<input list>` pointing at
-a `<datalist id>`. The id is unique within the page. `Root` registers its dataset under
-it in a per-request `React.cache()` map, and `Items` looks it up.
+takes an `id` and parts that read its data pass it as `rootId`, like `<input list>`
+pointing at a `<datalist id>`. Those are the parts with a render function, `Items` and
+`Groups`; `Viewport`, `Item`, `Group` and `GroupLabel` don't need it. The id is unique
+within the page. `Root` registers its dataset under it in a per-request `React.cache()`
+map, and `Items` and `Groups` look it up.
+
+## Groups
+
+Groups are parts in the tree. The dataset carries your group objects (any shape), items
+stay flat in group order, and `count` has one size per group:
+
+```tsx
+const produce = createDataset({ getItems, groups: categories }); // or { items, groups }
+// Nested data? Flatten it: items = categories.flatMap((c) => c.products), count = their lengths.
+
+<VirtualList.Root id="produce" data={produce} count={categories.map((c) => c.size)} defaultItemSize={32}>
+  <VirtualList.Viewport>
+    <VirtualList.Groups<Category> rootId="produce">
+      {(category, groupIndex) => (
+        <VirtualList.Group>
+          <VirtualList.GroupLabel>{category.name}</VirtualList.GroupLabel>
+          <VirtualList.Items<Product> rootId="produce" groupIndex={groupIndex}>
+            {(product) => …}
+          </VirtualList.Items>
+        </VirtualList.Group>
+      )}
+    </VirtualList.Groups>
+  </VirtualList.Viewport>
+</VirtualList.Root>;
+```
+
+- `Group` is a `role="group"` element labelled by its `GroupLabel`, and holds only the
+  group's rendered rows. A label is a row of its own, measured like an item; when it
+  scrolls out while its group is still on screen, it stays mounted but hidden, so the
+  group's label still resolves.
+- Item indexes count items only, across all groups, so `offset`, `onRangeChange` and
+  `aria-posinset` mean the same as in a flat list.
+- So a client grouped list loads items by range exactly like a flat one: only the groups
+  (small) are needed up front. See [team-list.tsx](app/_components/team-list.tsx).
+- In a Server Component, `Groups` calls its function for every group, and each group's
+  `Items` streams that group's items. `groupIndex` tells it which group, since Server
+  Components can't read the enclosing `Group`; client components get it from context.
 
 ## Pending and failed rows
 
@@ -172,16 +226,19 @@ vertical margins; they aren't measured.
 
 ## Files
 
-| File                                      | Build  | Does                                                           |
-| ----------------------------------------- | ------ | -------------------------------------------------------------- |
-| `root.tsx`, `viewport.tsx`, `item.tsx`    | both   | Shared client parts: visible range, scrolling, measuring rows. |
-| `sizes.ts`                                | both   | Row heights and positions, stored sparsely.                    |
-| `items.tsx`, `dataset.ts`, `types.ts`     | both   | List element, `createDataset`, types.                          |
-| `items.client.tsx`                        | client | Renders visible rows from `items`.                             |
-| `root.server.tsx`, `list-store.server.ts` | server | Registers `Root`'s dataset under its `id`.                     |
-| `items.server.tsx`                        | server | Picks the mode, renders the first rows, streams the rest.      |
-| `render-rows.server.ts`                   | server | Fetching and row rendering for the stream.                     |
-| `items-stream.tsx`                        | server | Client half: places streamed rows by index.                    |
+| File                                      | Build  | Does                                                                      |
+| ----------------------------------------- | ------ | ------------------------------------------------------------------------- |
+| `root.tsx`, `viewport.tsx`, `item.tsx`    | both   | Shared client parts: visible range, scrolling, measuring rows.            |
+| `sizes.ts`                                | both   | Row heights and positions, stored sparsely.                               |
+| `items.tsx`, `dataset.ts`, `types.ts`     | both   | List element, `createDataset`, types.                                     |
+| `layout.ts`                               | both   | Maps items to rows (group labels are rows too).                           |
+| `group.tsx`                               | both   | `Group`, `GroupLabel`, and the grouped list element.                      |
+| `groups.client.tsx` / `groups.server.tsx` | each   | `Groups` for each build; `groups-stream.tsx` is the server's client half. |
+| `items.client.tsx`                        | client | Renders visible rows from `items`.                                        |
+| `root.server.tsx`, `list-store.server.ts` | server | Registers `Root`'s dataset under its `id`.                                |
+| `items.server.tsx`                        | server | Renders the first rows, streams the rest (a group's, with `groupIndex`).  |
+| `render-rows.server.ts`                   | server | Fetching and row rendering for the stream.                                |
+| `items-stream.tsx`                        | server | Client half: places streamed rows by index.                               |
 
 ## How streaming works
 
@@ -196,7 +253,7 @@ vertical margins; they aren't measured.
 
 ## Vite
 
-[`vite-rsc/`](vite-rsc) renders the same two lists with `@vitejs/plugin-rsc`, using
+[`vite-rsc/`](vite-rsc) renders the same four demos, on the same routes, with `@vitejs/plugin-rsc`, using
 `lib/virtual-list` and the client list unchanged. Its RSC entry also serves
 `/api/users` for the client list:
 

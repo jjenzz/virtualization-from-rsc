@@ -2,7 +2,7 @@
 
 import type { ReactNode } from 'react';
 import { Items as ItemsImpl } from './items';
-import { useDataContext, useRootContext } from './root';
+import { useDataContext } from './root';
 import type { ItemsProps } from './types';
 
 /**
@@ -12,7 +12,6 @@ import type { ItemsProps } from './types';
  * `dataset.getItems`: on the client, the app loads data and passes `items`.
  */
 export function Items<T>({ children: render }: ItemsProps<T>): ReactNode {
-  const { rangeSize } = useRootContext();
   const items = useDataContext<T>();
   if (items.getItems) {
     // Every row would stay "pending" forever, so fail loudly instead.
@@ -22,7 +21,7 @@ export function Items<T>({ children: render }: ItemsProps<T>): ReactNode {
     );
   }
   return (
-    <ItemsImpl initialCount={rangeSize}>
+    <ItemsImpl isPending={(index) => items.itemAt(index) === undefined}>
       {(index) => {
         const item = items.itemAt(index);
         return item === undefined ? render(undefined, index, 'pending') : render(item, index, 'loaded');

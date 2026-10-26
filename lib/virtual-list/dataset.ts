@@ -14,20 +14,37 @@ export type GetItems<T> = (range: Range, options?: { signal?: AbortSignal }) => 
  *   it returns that range's items. The list doesn't cache or refetch; it reads
  *   each range once. Server only: the client list never calls it (the app loads
  *   data itself and passes `items`).
+ * - `groups` (optional): your group objects, in order, passed to `Groups` to render
+ *   each group. Their shape is yours: the list never reads them. Items stay flat,
+ *   in group order, and the group sizes go on `Root`'s `count`, one per group.
  *
  * Class instances can't be passed as props from a Server Component to a client
  * component, so build the dataset where it's rendered.
  */
-export class Dataset<T> {
+export class Dataset<T, G = unknown> {
   readonly items: readonly (T | undefined)[];
   readonly getItems?: GetItems<T>;
+  readonly groups?: readonly G[];
   /** The index of `items[0]`. Set from `Root`'s `offset`. */
   readonly offset: number;
 
-  constructor(options: DatasetOptions<T>, offset = 0) {
+  constructor(options: DatasetOptions<T, G>, offset = 0) {
     this.items = options.items ?? [];
     this.getItems = options.getItems;
+    this.groups = options.groups;
     this.offset = offset;
+  }
+
+  /** The `count` to use when `Root` has none: the length of a flat, complete `items` array. */
+  get defaultCount(): number | undefined {
+    return !this.getItems && !this.groups && this.offset === 0 ? this.items.length : undefined;
+  }
+
+  /** A dataset with the same data and a different offset. */
+  withOffset(offset: number): Dataset<T, G> {
+    const copy = Object.create(Dataset.prototype) as Dataset<T, G>;
+    Object.assign(copy, this, { offset });
+    return copy;
   }
 
   /** The item at `index`, or undefined if it's outside the window or not loaded. */
@@ -36,12 +53,13 @@ export class Dataset<T> {
   }
 }
 
-/** Either `items` or `getItems`, not both. `getItems` can return any array of items. */
-export type DatasetOptions<T> =
-  { items: readonly (T | undefined)[]; getItems?: never } | { getItems: GetItems<T>; items?: never };
+/** Either `items` or `getItems`, not both, plus optional `groups`. `getItems` can return any array of items. */
+export type DatasetOptions<T, G = unknown> =
+  | { items: readonly (T | undefined)[]; getItems?: never; groups?: readonly G[] }
+  | { getItems: GetItems<T>; items?: never; groups?: readonly G[] };
 
 /** What `createDataset` and `Root`'s `data` accept: options, an items array, or a dataset. */
-export type DatasetInput<T> = DatasetOptions<T> | readonly (T | undefined)[] | Dataset<T>;
+export type DatasetInput<T, G = unknown> = DatasetOptions<T, G> | readonly (T | undefined)[] | Dataset<T, G>;
 
 /**
  * Makes a dataset from options (`{ items }` or `{ getItems }`), an items array, or
@@ -50,13 +68,11 @@ export type DatasetInput<T> = DatasetOptions<T> | readonly (T | undefined)[] | D
  * dataset made from another shares its `items` or `getItems`. `Root` calls this
  * with its `data` and `offset`.
  */
-export function createDataset<T>(input: DatasetInput<T>, { offset }: { offset?: number } = {}): Dataset<T> {
-  if (input instanceof Dataset) {
-    return new Dataset<T>(
-      input.getItems ? { getItems: input.getItems } : { items: input.items },
-      offset ?? input.offset,
-    );
-  }
-  if (Array.isArray(input)) return new Dataset<T>({ items: input as readonly (T | undefined)[] }, offset);
-  return new Dataset<T>(input as DatasetOptions<T>, offset);
+export function createDataset<T, G = unknown>(
+  input: DatasetInput<T, G>,
+  { offset }: { offset?: number } = {},
+): Dataset<T, G> {
+  if (input instanceof Dataset) return input.withOffset(offset ?? input.offset);
+  if (Array.isArray(input)) return new Dataset<T, G>({ items: input as readonly (T | undefined)[] }, offset);
+  return new Dataset<T, G>(input as DatasetOptions<T, G>, offset);
 }

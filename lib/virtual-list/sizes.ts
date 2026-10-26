@@ -21,8 +21,11 @@ export class Sizes {
   private readonly blocks = new Map<number, Map<number, number>>();
   private readonly blockCounts: Float64Array;
   private readonly blockSums: Float64Array;
-  private measuredCount = 0;
-  private measuredSum = 0;
+  /** Count and total height of the measured rows that feed the average (real items only). */
+  private typicalCount = 0;
+  private typicalSum = 0;
+  /** Measured rows that don't feed the average: placeholders and group labels. */
+  private readonly untypical = new Set<number>();
   /** Running totals of the block counts and sums before each block. Rebuilt lazily. */
   private prefix: { counts: Float64Array; sums: Float64Array } | null = null;
 
@@ -33,28 +36,44 @@ export class Sizes {
     this.blockCounts = new Float64Array(blocks);
     this.blockSums = new Float64Array(blocks);
     // Keep what was measured before (the count or the default size changed).
-    previous?.blocks.forEach((rows) => rows.forEach((size, index) => index < count && this.set(index, size)));
+    previous?.blocks.forEach((rows) =>
+      rows.forEach((size, index) => index < count && this.set(index, size, !previous.untypical.has(index))),
+    );
   }
 
-  /** The height used for unmeasured items: the average measured height, or the default. */
+  /** The height used for unmeasured rows: the average height of measured items, or the default. */
   get estimate(): number {
-    return this.measuredCount > 0 ? this.measuredSum / this.measuredCount : this.defaultSize;
+    return this.typicalCount > 0 ? this.typicalSum / this.typicalCount : this.defaultSize;
   }
 
-  /** Records a measured height. Returns whether anything changed. */
-  set(index: number, size: number): boolean {
+  /**
+   * Records a measured height. `typical` is false for rows that aren't real items,
+   * such as "Loading…" placeholders and group labels: they're positioned by their
+   * measured height but kept out of the average, so a stretch of placeholders
+   * doesn't drag the estimate (and the total height) away from real rows.
+   * Returns whether anything changed.
+   */
+  set(index: number, size: number, typical = true): boolean {
     const b = Math.floor(index / BLOCK);
     let rows = this.blocks.get(b);
     if (!rows) this.blocks.set(b, (rows = new Map()));
     const previous = rows.get(index);
-    if (previous === size) return false;
+    const wasTypical = previous !== undefined && !this.untypical.has(index);
+    if (previous === size && wasTypical === typical) return false;
     rows.set(index, size);
-    if (previous === undefined) {
-      this.blockCounts[b] += 1;
-      this.measuredCount += 1;
-    }
+    if (previous === undefined) this.blockCounts[b] += 1;
     this.blockSums[b] += size - (previous ?? 0);
-    this.measuredSum += size - (previous ?? 0);
+    if (wasTypical) {
+      this.typicalCount -= 1;
+      this.typicalSum -= previous;
+    }
+    if (typical) {
+      this.typicalCount += 1;
+      this.typicalSum += size;
+      this.untypical.delete(index);
+    } else {
+      this.untypical.add(index);
+    }
     this.prefix = null;
     return true;
   }

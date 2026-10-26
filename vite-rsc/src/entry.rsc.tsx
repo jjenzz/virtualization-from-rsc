@@ -21,11 +21,18 @@ export default async function handler(request: Request): Promise<Response> {
           .viewport { height: 600px; border: 1px solid #ccc; }
           .row { display: flex; flex-wrap: wrap; column-gap: 16px; align-items: center; min-height: 32px; padding: 6px 12px; border-bottom: 1px solid #eee; }
           .bio { flex-basis: 100%; margin: 2px 0 0 64px; color: #666; }
+          .group-label { display: flex; align-items: center; min-height: 32px; padding: 4px 12px; background: #f4f4f5; border-bottom: 1px solid #ddd; font-weight: 600; }
           .row[data-pending] { color: #999; }
+          body { margin: 0; padding: 16px; font: 14px/1.4 system-ui, sans-serif; }
+          .viewport { max-width: 720px; }
+          .id { width: 48px; color: #888; } .name { width: 160px; font-weight: 600; } .email { flex: 1; color: #555; }
+          .demo-nav { display: flex; flex-wrap: wrap; gap: 4px 16px; padding-bottom: 12px; border-bottom: 1px solid #eee; }
+          .demo-nav a { color: #555; text-decoration: none; }
+          .demo-nav a[aria-current='page'] { color: #000; font-weight: 600; }
         `}</style>
       </head>
       <body>
-        <Page n={url.searchParams.get('n')} />
+        <Page pathname={url.pathname.replace(/\.rsc$/, '')} n={url.searchParams.get('n')} />
       </body>
     </html>,
   );

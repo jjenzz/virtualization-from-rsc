@@ -5,22 +5,23 @@ import { useRootContext } from './root';
 
 /** The scroll container. Give it a height with CSS. */
 export function Viewport({ style, onScroll, onPointerDown, ...props }: ComponentProps<'div'>) {
-  const { setScrollTop, setViewportHeight, viewportRef, captureAnchor, setDragging } = useRootContext();
+  const root = useRootContext();
+  const { onViewportResize, viewportRef } = root;
   const ref = useRef<HTMLDivElement>(null);
 
   useLayoutEffect(() => {
     const element = ref.current!;
     viewportRef.current = element;
-    const observer = new ResizeObserver(() => setViewportHeight(element.clientHeight));
+    const observer = new ResizeObserver(() => onViewportResize(element.clientHeight));
     observer.observe(element);
-    setViewportHeight(element.clientHeight);
+    onViewportResize(element.clientHeight);
     // The user may have scrolled before hydration, and React doesn't replay that scroll event.
-    setScrollTop(element.scrollTop);
+    root.onScroll(element.scrollTop);
     return () => {
       observer.disconnect();
       viewportRef.current = null;
     };
-  }, [setViewportHeight, setScrollTop, viewportRef]);
+  }, [onViewportResize, root.onScroll, viewportRef]);
 
   return (
     <div
@@ -32,9 +33,9 @@ export function Viewport({ style, onScroll, onPointerDown, ...props }: Component
       onPointerDown={(event) => {
         // A press on the scroll container itself, not on a row, is the scrollbar.
         if (event.target === event.currentTarget) {
-          setDragging(true);
+          root.onScrollbarDragChange(true);
           const release = () => {
-            setDragging(false);
+            root.onScrollbarDragChange(false);
             window.removeEventListener('pointerup', release);
             window.removeEventListener('pointercancel', release);
           };
@@ -44,8 +45,8 @@ export function Viewport({ style, onScroll, onPointerDown, ...props }: Component
         onPointerDown?.(event);
       }}
       onScroll={(event) => {
-        setScrollTop(event.currentTarget.scrollTop);
-        captureAnchor();
+        // Only re-renders when the rendered row range changes, not on every scroll event.
+        root.onScroll(event.currentTarget.scrollTop);
         onScroll?.(event);
       }}
     />

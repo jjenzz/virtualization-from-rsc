@@ -61,3 +61,31 @@ h2 {
   color: #888;
   font-variant-numeric: tabular-nums;
 }
+.group-label {
+  display: flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 4px 12px;
+  background: #f4f4f5;
+  border-bottom: 1px solid #ddd;
+  font-weight: 600;
+}
+.demo-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: -4px 0 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #eee;
+}
+.demo-nav a {
+  color: #555;
+  text-decoration: none;
+}
+.demo-nav a[aria-current='page'] {
+  color: #000;
+  font-weight: 600;
+}
+.viewport {
+  max-width: 720px;
+}

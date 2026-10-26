@@ -53,15 +53,28 @@ function split(range: Range, size: number): Range[] {
  * its rows render with status "error"; if the stream fails, rows that never arrived
  * show `children(undefined, -1, 'error')` (see render-rows.server.ts).
  */
-export async function Items<T>({ rootId, children: render }: ItemsProps<T>): Promise<ReactNode> {
+export async function Items<T>({ rootId, groupIndex, children: render }: ItemsProps<T>): Promise<ReactNode> {
   // Read before any await: the dataset and layout values Root registered under its id.
-  const { dataset, count, rangeSize } = getList<T>(rootId, 'Items');
+  const { dataset, count, layout, limit } = getList<T>(rootId, 'Items');
+  if (layout.grouped && groupIndex === undefined) {
+    throw new Error(
+      `<VirtualList.Items rootId="${rootId}"> in a grouped list needs groupIndex in a Server Component: pass the ` +
+        "index the Groups function receives (Server Components can't read the enclosing Group).",
+    );
+  }
 
+  // This part's items: a group's, or the whole list's.
+  const own = groupIndex === undefined ? { start: 0, end: count } : layout.groupItems(groupIndex);
   const fetchRange = (range: Range) =>
-    fetchRows<T>((r) => (dataset.getItems ? dataset.getItems(r) : indicesOf(r).map((i) => dataset.itemAt(i))), range);
+    limit(() =>
+      fetchRows<T>((r) => (dataset.getItems ? dataset.getItems(r) : indicesOf(r).map((i) => dataset.itemAt(i))), range),
+    );
 
-  const firstRange = { start: 0, end: Math.min(count, FIRST_CHUNK_SIZE) };
-  const pageRanges = split({ start: firstRange.end, end: count }, PAGE_SIZE);
+  // The first chunk is the items on the list's first FIRST_CHUNK_SIZE rows, so in a
+  // grouped list only the groups at the top wait for theirs; later groups stream.
+  const firstRows = Math.max(0, FIRST_CHUNK_SIZE - layout.rowOfItem(own.start));
+  const firstRange = { start: own.start, end: Math.min(own.end, own.start + firstRows) };
+  const pageRanges = split({ start: firstRange.end, end: own.end }, PAGE_SIZE);
 
   // Fetch in parallel, render in order. Up to FETCH_CONCURRENCY page fetches run
   // ahead of the render loop; each time it takes a page, the next fetch starts.
@@ -73,12 +86,13 @@ export async function Items<T>({ rootId, children: render }: ItemsProps<T>): Pro
     }
   };
 
-  const firstFetched = await fetchRange(firstRange);
+  const firstFetched: Fetched<T> =
+    firstRange.end > firstRange.start ? await fetchRange(firstRange) : { ok: true, data: [] };
   // Start the page fetches only now: started alongside the first chunk, their
   // results arrived with it and delayed the first HTML.
   fetchAhead();
   const [first, placeholder, errorRow] = await Promise.all([
-    renderRows(render, firstRange, firstFetched, 0),
+    renderRows(render, firstRange, firstFetched, firstRange.start),
     renderTemplate(render, 'pending'),
     renderTemplate(render, 'error'),
   ]);
@@ -122,6 +136,12 @@ export async function Items<T>({ rootId, children: render }: ItemsProps<T>): Pro
   })();
 
   return (
-    <ItemsStream first={first} placeholder={placeholder} errorRow={errorRow} pages={pages.map((p) => p.promise)} />
+    <ItemsStream
+      start={own.start}
+      first={first}
+      placeholder={placeholder}
+      errorRow={errorRow}
+      pages={pages.map((p) => p.promise)}
+    />
   );
 }

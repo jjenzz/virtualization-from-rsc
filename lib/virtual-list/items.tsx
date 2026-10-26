@@ -1,35 +1,61 @@
 'use client';
 
 import { memo, useMemo, type ReactNode } from 'react';
+import { useGroupContext } from './group';
 import { ItemContext } from './item';
-import { useRangeContext, useRootContext, useSizesContext } from './root';
-import { indicesOf } from './types';
+import { useListHeight, useRangeContext, useRootContext, useSizesContext } from './root';
+import { indicesOf, type Range } from './types';
 
 /**
- * Full-height list element with the visible items inside. Shared by both builds.
- * The items sit in normal flow under a spacer as tall as all the items above them,
- * so they need no position of their own and can have different heights.
- * Until the viewport is measured (server render, hydration) it renders the first
- * `initialCount` items, so the server and the first client render match.
+ * The rendered items, shared by both builds. Re-renders when the range changes
+ * (the range context only changes then), not on every scroll event.
  *
- * Re-renders when the range changes (the range context only changes then), not
- * on every scroll event.
+ * In a flat list it's the full-height list element: the items sit in normal flow
+ * under a spacer as tall as everything above them, so they need no position of
+ * their own and can have different heights. Inside a `Group` it renders just that
+ * group's rendered items; `Groups` provides the list element and the spacer.
  */
-export function Items({ initialCount, children }: { initialCount: number; children: (index: number) => ReactNode }) {
-  const { count } = useRootContext();
+export function Items({
+  children,
+  isPending,
+}: {
+  children: (index: number) => ReactNode;
+  /** Whether item `index` is a placeholder (not arrived yet). */
+  isPending: (index: number) => boolean;
+}) {
+  const { count, layout } = useRootContext();
   const sizes = useSizesContext();
-  const range = useRangeContext() ?? { start: 0, end: Math.min(count, initialCount) };
+  const listHeight = useListHeight();
+  const range = useRangeContext();
+  const group = useGroupContext();
 
+  if (group) {
+    return indicesOf(intersect(group.items, range.items)).map((index) => (
+      <ItemsView key={index} index={index} row={layout.rowOfItem(index)} count={count} pending={isPending(index)}>
+        {children(index)}
+      </ItemsView>
+    ));
+  }
+  if (layout.grouped) {
+    throw new Error(
+      '<VirtualList.Items> in a grouped list goes inside <VirtualList.Group>, under <VirtualList.Groups>.',
+    );
+  }
   return (
-    <div role="list" style={{ height: sizes.start(count) }}>
-      <div aria-hidden style={{ height: sizes.start(range.start) }} />
-      {indicesOf(range).map((index) => (
-        <ItemsView key={index} index={index} count={count}>
+    <div role="list" style={{ height: listHeight }}>
+      <div aria-hidden style={{ height: sizes.start(range.rows.start) }} />
+      {indicesOf(range.items).map((index) => (
+        <ItemsView key={index} index={index} row={index} count={count} pending={isPending(index)}>
           {children(index)}
         </ItemsView>
       ))}
     </div>
   );
+}
+
+function intersect(a: Range, b: Range): Range {
+  const start = Math.max(a.start, b.start);
+  return { start, end: Math.max(start, Math.min(a.end, b.end)) };
 }
 
 /**
@@ -39,13 +65,17 @@ export function Items({ initialCount, children }: { initialCount: number; childr
  */
 const ItemsView = memo(function ItemsView({
   index,
+  row,
   count,
+  pending,
   children,
 }: {
   index: number;
+  row: number;
   count: number;
+  pending: boolean;
   children: ReactNode;
 }) {
-  const value = useMemo(() => ({ index, count }), [index, count]);
+  const value = useMemo(() => ({ index, row, count, pending }), [index, row, count, pending]);
   return <ItemContext value={value}>{children}</ItemContext>;
 });

@@ -1,10 +1,10 @@
 'use client';
 
-import { keepPreviousData, QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
 import { type PropsWithChildren, useState } from 'react';
 import { VirtualList, type Range } from '#virtual-list';
 import type { User } from '@/lib/data';
-import { firstRange, PAGE, usersQueryKey, type UsersWindow } from '@/lib/users-query';
+import { firstRange, PAGE, usersQuery } from '@/lib/users-query';
 
 export function ReactQueryClientProvider(props: PropsWithChildren) {
   const [queryClient] = useState(() => new QueryClient());
@@ -13,15 +13,7 @@ export function ReactQueryClientProvider(props: PropsWithChildren) {
 
 export function UserList({ total }: { total: number }) {
   const [range, setRange] = useState<Range>(() => firstRange(total));
-  const { data } = useQuery({
-    queryKey: usersQueryKey(total, range),
-    placeholderData: keepPreviousData,
-    staleTime: Infinity,
-    queryFn: async ({ signal }) => {
-      const res = await fetch(`/api/users?start=${range.start}&end=${range.end}&total=${total}`, { signal });
-      return { start: range.start, items: (await res.json()) as User[] } satisfies UsersWindow;
-    },
-  });
+  const { data } = useQuery(usersQuery(total, range));
 
   return (
     <VirtualList.Root

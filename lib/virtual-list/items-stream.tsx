@@ -16,11 +16,14 @@ export type Slice = { start: number; rows: ReactNode[] };
  * by React's ~300 ms reveal throttle.
  */
 export function ItemsStream({
+  start,
   first,
   placeholder,
   errorRow,
   pages,
 }: {
+  /** The index of `first[0]`: 0, or a group's first item. */
+  start: number;
   first: ReactNode[];
   /** `children(undefined, -1, 'pending')`, shown for rows whose slice hasn't arrived. */
   placeholder: ReactNode;
@@ -28,7 +31,11 @@ export function ItemsStream({
   errorRow: ReactNode;
   pages: Promise<Promise<Slice>[]>[];
 }) {
-  const rows = useRef<ReactNode[]>([...first]);
+  const rows = useRef<ReactNode[] | null>(null);
+  if (!rows.current) {
+    rows.current = [];
+    first.forEach((row, i) => (rows.current![start + i] = row));
+  }
   const failed = useRef(false);
   const [, rerender] = useReducer((n: number) => n + 1, 0);
 
@@ -45,7 +52,7 @@ export function ItemsStream({
         for (const slice of slices) {
           slice.then(({ start, rows: sliceRows }) => {
             if (!active) return;
-            for (let i = 0; i < sliceRows.length; i++) rows.current[start + i] = sliceRows[i];
+            for (let i = 0; i < sliceRows.length; i++) rows.current![start + i] = sliceRows[i];
             rerender();
           }, fail);
         }
@@ -57,10 +64,10 @@ export function ItemsStream({
   }, [pages]);
 
   return (
-    <Items initialCount={first.length}>
+    <Items isPending={(index) => !(index in rows.current!)}>
       {(index) =>
         // `in`, not `??`: a row that arrived may be null (children rendered nothing).
-        index in rows.current ? rows.current[index] : failed.current ? errorRow : placeholder
+        index in rows.current! ? rows.current![index] : failed.current ? errorRow : placeholder
       }
     </Items>
   );
