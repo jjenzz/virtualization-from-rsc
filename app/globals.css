@@ -105,6 +105,10 @@ h2 {
   background: #f4f4f5;
   font-weight: 600;
 }
+.table .table-cells {
+  display: flex;
+  flex: none;
+}
 .table .table-cell {
   flex: none;
   box-sizing: border-box;

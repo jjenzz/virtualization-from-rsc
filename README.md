@@ -221,9 +221,18 @@ count as the average measured height (or `defaultItemSize` before any are measur
 
 Rows sit in normal flow under a spacer as tall as everything above them. When a row
 above the viewport changes height, the list moves the scroll position by the same
-amount, so the view stays still. While the scrollbar is dragged, new measurements wait
-until it's released, so the thumb doesn't drift from the pointer. Don't give rows
+amount, so the view stays still. While the scrollbar is dragged, the total height stays
+put until it's released, so the thumb doesn't drift from the pointer. Don't give rows
 vertical margins; they aren't measured.
+
+## Fast scrolling
+
+A trackpad or wheel scroll moves the content before the next rows can render. The
+rendered rows sit in a sticky window whose `top` and `bottom` are
+`viewport height - window height` (negative). In normal scrolling it stays where its
+rows belong. When a scroll outruns it, it's held at the viewport's edge, showing the
+rows it has instead of blank space until the new ones render. The browser does this
+itself while scrolling, with no script running per frame.
 
 ## Hooks
 
@@ -235,7 +244,7 @@ ARIA: the markup maps an index to `aria-posinset`, `aria-rowindex` or whatever i
 | ----------------------------------------- | -------------------------------------------------------------------------------- |
 | `useVirtualizer(options)`                 | `{ virtualizer, state }`: stable settings and callbacks, and the rendered range. |
 | `useVirtualizerViewport(virtualizer)`     | `{ ref, props }` for the scroll container. Takes several virtualizers too.       |
-| `useVirtualizerItems(state)`              | The list and spacer styles, the rendered indexes, and the rendered groups.       |
+| `useVirtualizerItems(state)`              | The list, spacer and sticky window props, the rendered indexes, and the groups.  |
 | `useVirtualizerItem(virtualizer, item)`   | `{ ref, props }` for one item: measures it and marks its row.                    |
 | `useVirtualizerGroup(virtualizer, group)` | `{ labelId, labelRef, labelProps }` for a group's label.                         |
 

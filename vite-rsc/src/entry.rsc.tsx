@@ -32,6 +32,7 @@ export default async function handler(request: Request): Promise<Response> {
           .table .table-row { display: flex; height: 36px; border-bottom: 1px solid #eee; }
           .table .table-row > [aria-hidden] { flex: none; }
           .table .table-header { position: sticky; top: 0; z-index: 1; background: #f4f4f5; font-weight: 600; }
+          .table .table-cells { display: flex; flex: none; }
           .table .table-cell { flex: none; box-sizing: border-box; display: flex; align-items: center; padding: 0 12px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; border-right: 1px solid #eee; }
           .table .table-row[data-pending] { color: #999; }
         `}</style>

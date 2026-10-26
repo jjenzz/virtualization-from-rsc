@@ -97,6 +97,8 @@ export interface VirtualizerState {
   readonly sizes: Sizes;
   /** The list's total size, held still while the scrollbar is dragged. */
   readonly listSize: number;
+  /** The viewport's size along the axis; 0 until it's measured. */
+  readonly viewportSize: number;
   /** The rendered range, as items and as rows. */
   readonly range: { items: Range; rows: Range };
 }
@@ -269,7 +271,11 @@ export function useVirtualizer({
     if (viewport && anchor && !draggingRef.current) {
       const element = viewport.querySelector(`[${attribute}="${anchor.row}"]:not([hidden])`);
       if (element) {
-        const moved = element.getBoundingClientRect()[start] - viewport.getBoundingClientRect()[start] - anchor.offset;
+        const moved =
+          element.getBoundingClientRect()[start] -
+          windowShift(element, axis) -
+          viewport.getBoundingClientRect()[start] -
+          anchor.offset;
         if (Math.abs(moved) >= 0.5) viewport[scroll] += moved;
       }
     }
@@ -333,8 +339,8 @@ export function useVirtualizer({
   const listSize = frozenSize ?? totalSize;
   // `sizes` is mutated in place, so `version` is what marks a change.
   const state = useMemo<VirtualizerState>(
-    () => ({ axis, count: itemCount, layout, sizes, listSize, range }),
-    [axis, itemCount, layout, sizes, version, listSize, range],
+    () => ({ axis, count: itemCount, layout, sizes, listSize, viewportSize, range }),
+    [axis, itemCount, layout, sizes, version, listSize, viewportSize, range],
   );
 
   return { virtualizer, state };
@@ -342,18 +348,43 @@ export function useVirtualizer({
 
 type Anchor = { row: number; offset: number };
 
-/** The first row showing in the viewport (item or group label), and its distance from the viewport's start. */
+/**
+ * The first row in the viewport (item or group label), and its distance from the
+ * viewport's start. Positions are where rows belong, not where a sticky window
+ * holding them at the viewport's edge has them, so a scroll that outran the
+ * rendered rows doesn't look like rows moving.
+ */
 function findAnchor(viewport: HTMLElement | null, axis: Axis): Anchor | null {
   if (!viewport) return null;
   const { attribute, dataKey, start, end } = AXES[axis];
   const view = viewport.getBoundingClientRect();
+  let shift: number | undefined;
   for (const element of viewport.querySelectorAll<HTMLElement>(`[${attribute}]:not([hidden])`)) {
+    // All rendered rows share one window, so its shift is read once.
+    shift ??= windowShift(element, axis);
     const rect = element.getBoundingClientRect();
-    if (rect[end] > view[start] && rect[start] < view[end]) {
-      return { row: Number(element.dataset[dataKey]), offset: rect[start] - view[start] };
+    if (rect[end] - shift > view[start] && rect[start] - shift < view[end]) {
+      return { row: Number(element.dataset[dataKey]), offset: rect[start] - shift - view[start] };
     }
   }
   return null;
+}
+
+const WINDOW_ATTRIBUTE = 'data-virtualizer-window';
+
+/** The attribute marking a rendered row's index, by axis. */
+type RowAttribute = { 'data-row-index'?: number; 'data-column-index'?: number };
+
+/**
+ * How far the sticky window holding `element` is pushed from where its rows belong:
+ * the gap between the window and the spacer just before it. 0 when it isn't held.
+ */
+function windowShift(element: Element, axis: Axis): number {
+  const holder = element.closest(`[${WINDOW_ATTRIBUTE}="${axis}"]`);
+  const spacer = holder?.previousElementSibling;
+  if (!holder || !spacer) return 0;
+  const { start, end } = AXES[axis];
+  return holder.getBoundingClientRect()[start] - spacer.getBoundingClientRect()[end];
 }
 
 /**
@@ -425,13 +456,23 @@ export interface VirtualizerGroupRange {
 }
 
 /**
- * What to render: the list element's size, the spacer before the rendered rows,
- * the rendered item indexes, and (in a grouped list) the groups with rendered rows.
+ * What to render, in this order inside the list element (`listStyle`): the spacer
+ * (`spacerStyle`), then the window (`windowProps`) holding the rendered rows, plus
+ * the rendered item indexes and (in a grouped list) the groups with rendered rows.
+ *
+ * The window is sticky, with insets that let it move only once a scroll outruns
+ * it: a fast trackpad or wheel scroll moves the content before the next rows can
+ * render, and instead of leaving blank space the window stays at the viewport's
+ * edge, showing the rows it has until the new ones arrive. Its insets are
+ * `viewport size - window size` (negative), so it never stops covering the viewport.
  */
 export function useVirtualizerItems(state: VirtualizerState) {
   return useMemo(() => {
-    const { axis, layout, sizes, listSize, range } = state;
-    const { size } = AXES[axis];
+    const { axis, layout, sizes, listSize, viewportSize, range } = state;
+    const { size, start, end } = AXES[axis];
+    const windowSize = sizes.start(range.rows.end) - sizes.start(range.rows.start);
+    // Not held anywhere until the viewport is measured (server render, hydration).
+    const inset = viewportSize > 0 ? Math.min(0, viewportSize - windowSize) : undefined;
     const groups: VirtualizerGroupRange[] = indicesOf(layout.groupsInRows(range.rows)).map((index) => {
       const labelRow = layout.labelRow(index);
       return {
@@ -446,6 +487,11 @@ export function useVirtualizerItems(state: VirtualizerState) {
       listStyle: { [size]: listSize } as CSSProperties,
       /** Style for the spacer before the rendered rows: the size of everything before them. */
       spacerStyle: { [size]: sizes.start(range.rows.start) } as CSSProperties,
+      /** Props for the element holding the rendered rows, straight after the spacer. */
+      windowProps: {
+        [WINDOW_ATTRIBUTE]: axis,
+        style: { position: 'sticky', [start]: inset, [end]: inset } as CSSProperties,
+      },
       /** The rendered item indexes (counting items only, across all groups). */
       indexes: indicesOf(range.items),
       /** The groups with rendered rows; empty for a flat list. */
@@ -482,7 +528,7 @@ export function useVirtualizerItem(
   const { attribute, size } = AXES[axis];
   const props = {
     ...(axis === 'y' ? { 'data-index': index } : null),
-    [attribute]: row,
+    ...({ [attribute]: row } as RowAttribute),
     style: itemSize === undefined ? undefined : ({ [size]: itemSize } as CSSProperties),
   };
   return { ref, props };
@@ -508,9 +554,9 @@ export function useVirtualizerGroup(virtualizer: Virtualizer, group: Virtualizer
   const { attribute, size } = AXES[axis];
   const labelProps = {
     id: labelId,
-    [attribute]: labelRow,
+    ...({ [attribute]: labelRow } as RowAttribute),
     hidden: !labelInRange,
-    'aria-hidden': 'true',
+    'aria-hidden': 'true' as const,
     // `hidden` alone loses to a class that sets `display`, so it's enforced inline.
     style: {
       ...(itemSize === undefined ? null : { [size]: itemSize }),

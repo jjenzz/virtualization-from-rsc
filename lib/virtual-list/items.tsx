@@ -26,7 +26,7 @@ export function Items({
   isPending: (index: number) => boolean;
 }) {
   const state = useVirtualizerStateContext();
-  const { listStyle, spacerStyle, indexes, rowOf } = useVirtualizerItems(state);
+  const { listStyle, spacerStyle, windowProps, indexes, rowOf } = useVirtualizerItems(state);
   const group = useGroupContext();
 
   const renderItem = (index: number) => (
@@ -44,7 +44,7 @@ export function Items({
   return (
     <div role="list" style={listStyle}>
       <div aria-hidden style={spacerStyle} />
-      {indexes.map(renderItem)}
+      <div {...windowProps}>{indexes.map(renderItem)}</div>
     </div>
   );
 }

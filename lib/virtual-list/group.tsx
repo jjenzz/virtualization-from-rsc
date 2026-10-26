@@ -25,25 +25,27 @@ export function useGroupContext() {
  */
 export function GroupsFrame({ renderGroup }: { renderGroup: (index: number) => ReactNode }) {
   const state = useVirtualizerStateContext();
-  const { listStyle, spacerStyle, groups } = useVirtualizerItems(state);
+  const { listStyle, spacerStyle, windowProps, groups } = useVirtualizerItems(state);
   if (!state.layout.grouped) {
     throw new Error('<VirtualList.Groups> needs a grouped count: one size per group, e.g. count={[120, 335, 48]}.');
   }
   return (
     <div role="list" style={listStyle}>
       <div aria-hidden style={spacerStyle} />
-      {groups.map((group) => (
-        <GroupView
-          key={group.index}
-          index={group.index}
-          itemStart={group.items.start}
-          itemEnd={group.items.end}
-          labelRow={group.labelRow}
-          labelInRange={group.labelInRange}
-        >
-          {renderGroup(group.index)}
-        </GroupView>
-      ))}
+      <div {...windowProps}>
+        {groups.map((group) => (
+          <GroupView
+            key={group.index}
+            index={group.index}
+            itemStart={group.items.start}
+            itemEnd={group.items.end}
+            labelRow={group.labelRow}
+            labelInRange={group.labelInRange}
+          >
+            {renderGroup(group.index)}
+          </GroupView>
+        ))}
+      </div>
     </div>
   );
 }

@@ -58,24 +58,29 @@ export function UserTable({ total }: { total: number }) {
       <div role="rowgroup" style={{ ...columnItems.listStyle, height: rows.state.listSize + ROW_HEIGHT }}>
         <div role="row" aria-rowindex={1} className="table-row table-header">
           <div aria-hidden style={columnItems.spacerStyle} />
-          {columnItems.indexes.map((column) => (
-            <Cell key={column} columns={columns.virtualizer} column={column} header>
-              {COLUMNS[column].title}
-            </Cell>
-          ))}
+          <div {...columnItems.windowProps} className="table-cells">
+            {columnItems.indexes.map((column) => (
+              <Cell key={column} columns={columns.virtualizer} column={column} header>
+                {COLUMNS[column].title}
+              </Cell>
+            ))}
+          </div>
         </div>
         <div aria-hidden style={rowItems.spacerStyle} />
-        {rowItems.indexes.map((index) => (
-          <Row
-            key={index}
-            rows={rows.virtualizer}
-            columns={columns.virtualizer}
-            index={index}
-            user={userAt(index)}
-            columnRange={columns.state.range.items}
-            columnSpacer={columnItems.spacerStyle}
-          />
-        ))}
+        <div {...rowItems.windowProps}>
+          {rowItems.indexes.map((index) => (
+            <Row
+              key={index}
+              rows={rows.virtualizer}
+              columns={columns.virtualizer}
+              index={index}
+              user={userAt(index)}
+              columnRange={columns.state.range.items}
+              columnSpacer={columnItems.spacerStyle}
+              columnWindow={columnItems.windowProps}
+            />
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -88,6 +93,7 @@ const Row = memo(function Row({
   user,
   columnRange,
   columnSpacer,
+  columnWindow,
 }: {
   rows: Virtualizer;
   columns: Virtualizer;
@@ -95,6 +101,8 @@ const Row = memo(function Row({
   user: User | undefined;
   columnRange: Range;
   columnSpacer: React.CSSProperties;
+  /** Holds the row's rendered cells: sticky, like the rows' window, for fast sideways scrolls. */
+  columnWindow: React.ComponentProps<'div'>;
 }) {
   const row = useVirtualizerItem(rows, { index, row: index, pending: !user });
   const cells = [];
@@ -116,7 +124,9 @@ const Row = memo(function Row({
       data-pending={user ? undefined : ''}
     >
       <div aria-hidden style={columnSpacer} />
-      {cells}
+      <div {...columnWindow} className="table-cells">
+        {cells}
+      </div>
     </div>
   );
 });
