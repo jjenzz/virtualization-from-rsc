@@ -4,4 +4,5 @@ export const DEMOS = [
   { href: '/client', title: 'Client Component + fetch on scroll' },
   { href: '/server-groups', title: 'Server Component + groups' },
   { href: '/client-groups', title: 'Client Component + groups' },
+  { href: '/table', title: 'Client Component + table (hooks)' },
 ] as const;

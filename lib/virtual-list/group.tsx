@@ -1,31 +1,16 @@
 'use client';
 
-import {
-  createContext,
-  memo,
-  useContext,
-  useId,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  type ComponentProps,
-  type ReactNode,
-} from 'react';
-import { useListHeight, useRangeContext, useRootContext, useSizesContext } from './root';
-import { indicesOf, type Range } from './types';
+import { createContext, memo, useContext, useMemo, type ComponentProps, type ReactNode } from 'react';
+import { useVirtualizerContext, useVirtualizerStateContext } from './root';
+import type { Range } from './types';
+import { useVirtualizerGroup, useVirtualizerItems } from './use-virtualizer';
 
 type GroupContextValue = {
   /** The group's index. */
   index: number;
-  /** The group's items. */
+  /** The group's rendered items. */
   items: Range;
-  /** The row of the group's label. */
-  labelRow: number;
-  /** Whether the label's row is rendered; otherwise it stays mounted, hidden, for `aria-labelledby`. */
-  labelInRange: boolean;
-  /** The label's element id, for the group's `aria-labelledby`. */
-  labelId: string;
-};
+} & ReturnType<typeof useVirtualizerGroup>;
 
 const GroupContext = createContext<GroupContextValue | null>(null);
 
@@ -39,30 +24,26 @@ export function useGroupContext() {
  * `renderGroup(index)` returns a group's content (`Group` with its label and items).
  */
 export function GroupsFrame({ renderGroup }: { renderGroup: (index: number) => ReactNode }) {
-  const { layout } = useRootContext();
-  const sizes = useSizesContext();
-  const listHeight = useListHeight();
-  const range = useRangeContext();
-  if (!layout.grouped) {
+  const state = useVirtualizerStateContext();
+  const { listStyle, spacerStyle, groups } = useVirtualizerItems(state);
+  if (!state.layout.grouped) {
     throw new Error('<VirtualList.Groups> needs a grouped count: one size per group, e.g. count={[120, 335, 48]}.');
   }
   return (
-    <div role="list" style={{ height: listHeight }}>
-      <div aria-hidden style={{ height: sizes.start(range.rows.start) }} />
-      {indicesOf(layout.groupsInRows(range.rows)).map((index) => {
-        const labelRow = layout.labelRow(index);
-        return (
-          <GroupView
-            key={index}
-            index={index}
-            items={layout.groupItems(index)}
-            labelRow={labelRow}
-            labelInRange={labelRow >= range.rows.start && labelRow < range.rows.end}
-          >
-            {renderGroup(index)}
-          </GroupView>
-        );
-      })}
+    <div role="list" style={listStyle}>
+      <div aria-hidden style={spacerStyle} />
+      {groups.map((group) => (
+        <GroupView
+          key={group.index}
+          index={group.index}
+          itemStart={group.items.start}
+          itemEnd={group.items.end}
+          labelRow={group.labelRow}
+          labelInRange={group.labelInRange}
+        >
+          {renderGroup(group.index)}
+        </GroupView>
+      ))}
     </div>
   );
 }
@@ -70,16 +51,24 @@ export function GroupsFrame({ renderGroup }: { renderGroup: (index: number) => R
 /** Gives one group its context. Memoized, so a group that stays on screen only re-renders when it changes. */
 const GroupView = memo(function GroupView({
   index,
-  items,
+  itemStart,
+  itemEnd,
   labelRow,
   labelInRange,
   children,
-}: Omit<GroupContextValue, 'labelId'> & { children: ReactNode }) {
-  const labelId = useId();
+}: {
+  index: number;
+  itemStart: number;
+  itemEnd: number;
+  labelRow: number;
+  labelInRange: boolean;
+  children: ReactNode;
+}) {
+  const items = useMemo(() => ({ start: itemStart, end: itemEnd }), [itemStart, itemEnd]);
+  const label = useVirtualizerGroup(useVirtualizerContext(), { index, items, labelRow, labelInRange });
   const value = useMemo(
-    () => ({ index, items, labelRow, labelInRange, labelId }),
-    // `items` is a new object each render; its bounds are what matter.
-    [index, items.start, items.end, labelRow, labelInRange, labelId],
+    () => ({ index, items, ...label }),
+    [index, items, label.labelId, label.labelRef, labelRow, labelInRange],
   );
   return <GroupContext value={value}>{children}</GroupContext>;
 });
@@ -102,26 +91,14 @@ export function Group(props: ComponentProps<'div'>) {
 export function GroupLabel({ style, ...props }: ComponentProps<'div'>) {
   const group = useGroupContext();
   if (!group) throw new Error('<VirtualList.GroupLabel> must be rendered inside <VirtualList.Group>.');
-  const { itemSize, onRowMount } = useRootContext();
-  const ref = useRef<HTMLDivElement>(null);
-  const { labelRow, labelInRange } = group;
-
-  useLayoutEffect(() => {
-    if (itemSize !== undefined || !labelInRange) return;
-    // Labels don't feed the average item height.
-    return onRowMount(ref.current!, labelRow, false);
-  }, [itemSize, labelRow, labelInRange, onRowMount]);
-
+  const { labelRef, labelProps } = group;
   return (
     <div
-      id={group.labelId}
-      data-row-index={labelRow}
-      aria-hidden="true"
-      hidden={!labelInRange}
       {...props}
-      ref={ref}
-      // `hidden` alone loses to a class that sets `display`, so it's enforced inline.
-      style={{ height: itemSize, ...style, ...(labelInRange ? null : { display: 'none' }) }}
+      {...labelProps}
+      ref={labelRef}
+      // `hidden` alone loses to a class that sets `display`, so the hook's `display: none` is kept.
+      style={{ ...labelProps.style, ...style, ...(labelProps.hidden ? { display: 'none' } : null) }}
     />
   );
 }

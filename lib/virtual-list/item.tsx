@@ -1,7 +1,8 @@
 'use client';
 
-import { createContext, useContext, useLayoutEffect, useRef, type ComponentProps } from 'react';
-import { useRootContext } from './root';
+import { createContext, useContext, type ComponentProps } from 'react';
+import { useVirtualizerContext } from './root';
+import { useVirtualizerItem } from './use-virtualizer';
 
 /**
  * The item's index (counting items only), its row (counting group labels too), the
@@ -12,34 +13,22 @@ export const ItemContext = createContext<{ index: number; row: number; count: nu
 /**
  * One row. Rows sit in normal flow under a spacer that <VirtualList.Items> sizes,
  * so they need no position of their own. With `itemSize` each row gets that
- * height; with `defaultItemSize` rows size themselves and are measured here.
+ * height; with `defaultItemSize` rows size themselves and are measured.
  * Don't give rows vertical margins: they aren't measured.
  */
 export function Item({ style, ...props }: ComponentProps<'div'>) {
   const item = useContext(ItemContext);
   if (!item) throw new Error('<VirtualList.Item> must be rendered by <VirtualList.Items>.');
-  const { itemSize, onRowMount } = useRootContext();
-  const ref = useRef<HTMLDivElement>(null);
-  const { row, pending } = item;
-
-  useLayoutEffect(() => {
-    if (itemSize !== undefined) return;
-    // A placeholder is measured for layout but kept out of the average item height.
-    return onRowMount(ref.current!, row, !pending);
-  }, [itemSize, row, pending, onRowMount]);
-
+  const { ref, props: itemProps } = useVirtualizerItem(useVirtualizerContext(), item);
   return (
     <div
       role="listitem"
       aria-setsize={item.count}
       aria-posinset={item.index + 1}
-      data-index={item.index}
-      data-row-index={item.row}
+      {...itemProps}
       {...props}
       ref={ref}
-      style={{ height: itemSize, ...style }}
-    >
-      {props.children}
-    </div>
+      style={{ ...itemProps.style, ...style }}
+    />
   );
 }

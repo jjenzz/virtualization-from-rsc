@@ -2,6 +2,7 @@ import { HydrationBoundary } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { TeamList } from '../../app/_components/team-list';
 import { ReactQueryClientProvider, UserList } from '../../app/_components/user-list';
+import { UserTable } from '../../app/_components/user-table';
 import { getTeams, getUsersRange, type Team, type User } from '../../lib/data';
 import { DEMOS } from '../../lib/demos';
 import { prefetchFirstUsers } from '../../lib/users-prefetch';
@@ -94,6 +95,11 @@ const PAGES: Record<string, (total: number) => ReactNode> = {
   '/client-groups': (total) => (
     <WithPrefetch total={total}>
       <TeamList total={total} teams={getTeams(total)} />
+    </WithPrefetch>
+  ),
+  '/table': (total) => (
+    <WithPrefetch total={total}>
+      <UserTable total={total} />
     </WithPrefetch>
   ),
 };

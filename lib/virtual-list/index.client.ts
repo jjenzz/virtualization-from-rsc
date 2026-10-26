@@ -11,3 +11,11 @@ export { createDataset } from './dataset';
 export type { Dataset, DatasetInput, DatasetOptions, GetItems } from './dataset';
 export type { GroupsProps, ItemStatus, ItemsProps, Range, RenderItem } from './types';
 export type { RootProps } from './root';
+export {
+  useVirtualizer,
+  useVirtualizerGroup,
+  useVirtualizerItem,
+  useVirtualizerItems,
+  useVirtualizerViewport,
+} from './use-virtualizer';
+export type { Axis, VirtualizerGroupRange, Virtualizer, VirtualizerOptions, VirtualizerState } from './use-virtualizer';

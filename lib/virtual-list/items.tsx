@@ -3,12 +3,14 @@
 import { memo, useMemo, type ReactNode } from 'react';
 import { useGroupContext } from './group';
 import { ItemContext } from './item';
-import { useListHeight, useRangeContext, useRootContext, useSizesContext } from './root';
-import { indicesOf, type Range } from './types';
+import { useVirtualizerStateContext } from './root';
+import { indicesOf } from './types';
+import { useVirtualizerItems } from './use-virtualizer';
 
 /**
  * The rendered items, shared by both builds. Re-renders when the range changes
- * (the range context only changes then), not on every scroll event.
+ * (the state context only changes then, or when a row is measured), not on every
+ * scroll event.
  *
  * In a flat list it's the full-height list element: the items sit in normal flow
  * under a spacer as tall as everything above them, so they need no position of
@@ -23,39 +25,28 @@ export function Items({
   /** Whether item `index` is a placeholder (not arrived yet). */
   isPending: (index: number) => boolean;
 }) {
-  const { count, layout } = useRootContext();
-  const sizes = useSizesContext();
-  const listHeight = useListHeight();
-  const range = useRangeContext();
+  const state = useVirtualizerStateContext();
+  const { listStyle, spacerStyle, indexes, rowOf } = useVirtualizerItems(state);
   const group = useGroupContext();
 
-  if (group) {
-    return indicesOf(intersect(group.items, range.items)).map((index) => (
-      <ItemsView key={index} index={index} row={layout.rowOfItem(index)} count={count} pending={isPending(index)}>
-        {children(index)}
-      </ItemsView>
-    ));
-  }
-  if (layout.grouped) {
+  const renderItem = (index: number) => (
+    <ItemsView key={index} index={index} row={rowOf(index)} count={state.count} pending={isPending(index)}>
+      {children(index)}
+    </ItemsView>
+  );
+
+  if (group) return indicesOf(group.items).map(renderItem);
+  if (state.layout.grouped) {
     throw new Error(
       '<VirtualList.Items> in a grouped list goes inside <VirtualList.Group>, under <VirtualList.Groups>.',
     );
   }
   return (
-    <div role="list" style={{ height: listHeight }}>
-      <div aria-hidden style={{ height: sizes.start(range.rows.start) }} />
-      {indicesOf(range.items).map((index) => (
-        <ItemsView key={index} index={index} row={index} count={count} pending={isPending(index)}>
-          {children(index)}
-        </ItemsView>
-      ))}
+    <div role="list" style={listStyle}>
+      <div aria-hidden style={spacerStyle} />
+      {indexes.map(renderItem)}
     </div>
   );
-}
-
-function intersect(a: Range, b: Range): Range {
-  const start = Math.max(a.start, b.start);
-  return { start, end: Math.max(start, Math.min(a.end, b.end)) };
 }
 
 /**

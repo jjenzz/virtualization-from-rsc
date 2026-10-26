@@ -41,6 +41,7 @@ Run `pnpm dev` and open `/`. Each demo has its own route, linked from the nav
 | `/client`        | [Client Component + fetch on scroll](app/client/page.tsx) |
 | `/server-groups` | [Server Component + groups](app/server-groups/page.tsx)   |
 | `/client-groups` | [Client Component + groups](app/client-groups/page.tsx)   |
+| `/table`         | [Client Component + table (hooks)](app/table/page.tsx)    |
 
 ## One import, two builds
 
@@ -224,11 +225,40 @@ amount, so the view stays still. While the scrollbar is dragged, new measurement
 until it's released, so the thumb doesn't drift from the pointer. Don't give rows
 vertical margins; they aren't measured.
 
+## Hooks
+
+The parts are built on headless hooks, exported from the client build for custom
+markup (a table, a grid). They return refs, props and positions, with no roles or
+ARIA: the markup maps an index to `aria-posinset`, `aria-rowindex` or whatever it needs.
+
+| Hook                                      | Returns                                                                          |
+| ----------------------------------------- | -------------------------------------------------------------------------------- |
+| `useVirtualizer(options)`                 | `{ virtualizer, state }`: stable settings and callbacks, and the rendered range. |
+| `useVirtualizerViewport(virtualizer)`     | `{ ref, props }` for the scroll container. Takes several virtualizers too.       |
+| `useVirtualizerItems(state)`              | The list and spacer styles, the rendered indexes, and the rendered groups.       |
+| `useVirtualizerItem(virtualizer, item)`   | `{ ref, props }` for one item: measures it and marks its row.                    |
+| `useVirtualizerGroup(virtualizer, group)` | `{ labelId, labelRef, labelProps }` for a group's label.                         |
+
+`useVirtualizer` takes the same options as `Root` (`count`, `itemSize` /
+`defaultItemSize`, `overscan`, `rangeSize`, `onRangeChange`) plus `axis: 'y' | 'x'`.
+With `axis: 'x'` it virtualizes columns, so a table can use one list for rows and
+one for columns over a single viewport:
+
+```tsx
+const rows = useVirtualizer({ count: rowCount, defaultItemSize: 40 });
+const columns = useVirtualizer({ count: columnCount, itemSize: 160, axis: 'x' });
+const viewport = useVirtualizerViewport([rows.virtualizer, columns.virtualizer]);
+```
+
+The `/table` demo ([user-table.tsx](app/_components/user-table.tsx)) is a full example: a sticky
+header, rows loaded with React Query, and `aria-rowindex` / `aria-colindex` on the cells.
+
 ## Files
 
 | File                                      | Build  | Does                                                                      |
 | ----------------------------------------- | ------ | ------------------------------------------------------------------------- |
-| `root.tsx`, `viewport.tsx`, `item.tsx`    | both   | Shared client parts: visible range, scrolling, measuring rows.            |
+| `use-virtualizer.ts`                      | client | The hooks: visible range, scrolling, measuring rows, either axis.         |
+| `root.tsx`, `viewport.tsx`, `item.tsx`    | both   | Shared client parts, built on the hooks.                                  |
 | `sizes.ts`                                | both   | Row heights and positions, stored sparsely.                               |
 | `items.tsx`, `dataset.ts`, `types.ts`     | both   | List element, `createDataset`, types.                                     |
 | `layout.ts`                               | both   | Maps items to rows (group labels are rows too).                           |
